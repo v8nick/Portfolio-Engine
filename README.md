@@ -14,37 +14,79 @@ This project implements a repeatable workflow for portfolio construction using:
 The model is designed to allow **rapid asset rotation** by editing a single configuration file and re-running the pipeline.
 
 ---
+
+# Requirements
+
+- Python 3.10+
+- Internet connection (for downloading market data)
+
+---
+
 # Usage
 
-### Windows
-Double-click `run.bat`
+## Windows
 
-### Mac
-Open Terminal in the folder and run:
+Double-click:
+
+```
+run.bat
+```
+
+This will automatically:
+
+- create a virtual environment  
+- install dependencies  
+- run the portfolio engine  
+
+---
+
+## Mac / Linux
+
+Open Terminal in the project folder and run:
+
 ```bash
 chmod +x run.command
 ./run.command
-
-inside pyhton:
-Run the full portfolio model with:
-
 ```
+
+This will:
+
+- create a virtual environment  
+- install dependencies  
+- run the portfolio engine  
+
+---
+
+## Manual Run
+
+If you prefer running manually:
+
+```bash
 python main.py
 ```
 
-To rotate assets or test new portfolios, modify the asset universe and weights in:
+---
+
+## Changing Assets
+
+To rotate assets or test new portfolios, modify:
 
 ```
 config.py
 ```
 
-Then rerun the model.
+Then rerun:
+
+```bash
+python main.py
+```
 
 ---
 
 # Key Features
 
 ## Portfolio Optimization
+
 Computes optimal allocations using **Modern Portfolio Theory**.
 
 Outputs include:
@@ -179,7 +221,6 @@ Builds performance summaries and cumulative return series.
 Runs the full portfolio research pipeline.
 
 ---
-
 
 # Model Purpose
 
