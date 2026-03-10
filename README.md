@@ -14,6 +14,33 @@ This project implements a repeatable workflow for portfolio construction using:
 The model is designed to allow **rapid asset rotation** by editing a single configuration file and re-running the pipeline.
 
 ---
+# Usage
+
+### Windows
+Double-click `run.bat`
+
+### Mac
+Open Terminal in the folder and run:
+```bash
+chmod +x run.command
+./run.command
+
+inside pyhton:
+Run the full portfolio model with:
+
+```
+python main.py
+```
+
+To rotate assets or test new portfolios, modify the asset universe and weights in:
+
+```
+config.py
+```
+
+Then rerun the model.
+
+---
 
 # Key Features
 
@@ -153,23 +180,6 @@ Runs the full portfolio research pipeline.
 
 ---
 
-# Usage
-
-Run the full portfolio model with:
-
-```
-python main.py
-```
-
-To rotate assets or test new portfolios, modify the asset universe and weights in:
-
-```
-config.py
-```
-
-Then rerun the model.
-
----
 
 # Model Purpose
 
