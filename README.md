@@ -1,177 +1,186 @@
-PORTFOLIO ENGINE
+# Portfolio Engine
 
-A quantitative portfolio research engine for long-horizon asset allocation, portfolio optimization, and risk simulation.
+A quantitative portfolio research engine for **long-horizon asset allocation, portfolio optimization, and risk simulation**.
 
 This project implements a repeatable workflow for portfolio construction using:
 
-- Black-Litterman expected return modeling
-- Mean-Variance Portfolio Optimization
-- Efficient Frontier and Capital Market Line
-- Rolling market regime analysis
-- Monte Carlo long-horizon risk simulations
-- Portfolio risk decomposition
+- Black-Litterman expected return modeling  
+- Mean-Variance Portfolio Optimization  
+- Efficient Frontier and Capital Market Line  
+- Rolling market regime analysis  
+- Monte Carlo long-horizon risk simulations  
+- Portfolio risk decomposition  
 
-The model is designed to allow rapid asset rotation by editing a single configuration file and re-running the pipeline.
+The model is designed to allow **rapid asset rotation** by editing a single configuration file and re-running the pipeline.
 
+---
 
+# Key Features
 
-KEY FEATURES
-
-PORTFOLIO OPTIMIZATION
-Computes optimal allocations using Modern Portfolio Theory.
+## Portfolio Optimization
+Computes optimal allocations using **Modern Portfolio Theory**.
 
 Outputs include:
-- Efficient Frontier
-- Maximum Sharpe portfolio
-- Minimum volatility portfolio
 
+- Efficient Frontier  
+- Maximum Sharpe portfolio  
+- Minimum volatility portfolio  
 
+---
 
-BLACK-LITTERMAN RETURN MODEL
+## Black-Litterman Return Model
 
 Combines:
-- historical returns
-- market equilibrium returns
-- investor views
 
-to produce more stable expected return estimates than historical averages alone.
+- historical returns  
+- market equilibrium returns  
+- investor views  
 
+to produce **more stable expected return estimates** than historical averages alone.
 
+---
 
-LONG HORIZON RISK SIMULATION
+## Long Horizon Risk Simulation
 
-Uses multivariate correlated Monte Carlo simulations to estimate:
+Uses **multivariate correlated Monte Carlo simulations** to estimate:
 
-- terminal wealth distributions
-- drawdown probabilities
-- probability of portfolio loss
-- long-term compounding outcomes
+- terminal wealth distributions  
+- drawdown probabilities  
+- probability of portfolio loss  
+- long-term compounding outcomes  
 
+---
 
+## Portfolio Diagnostics
 
-PORTFOLIO DIAGNOSTICS
+The engine generates a **decision dashboard** including:
 
-The engine generates a decision dashboard including:
+- Current Portfolio Performance  
+- Optimized Portfolio  
+- Suggested Weight Changes  
+- Risk Contribution by Asset  
+- Monte Carlo Risk Profile  
 
-Current Portfolio Performance
-Optimized Portfolio
-Suggested Weight Changes
-Risk Contribution by Asset
-Monte Carlo Risk Profile
+---
 
+# Example Outputs
 
+## Efficient Frontier
 
-EXAMPLE OUTPUTS
-
-Efficient Frontier
-
-Shows the optimal tradeoff between expected return and volatility.
+Shows the optimal tradeoff between **expected return and volatility**.
 
 Key points plotted:
-- Current portfolio
-- Maximum Sharpe portfolio
-- Minimum volatility portfolio
-- SPY benchmark
-- QQQ benchmark
 
+- Current portfolio  
+- Maximum Sharpe portfolio  
+- Minimum volatility portfolio  
+- SPY benchmark  
+- QQQ benchmark  
 
+---
 
-Rolling Market Environment
+## Rolling Market Environment
 
-Uses a rolling 5-year window to show:
+Uses a **rolling 5-year window** to show:
 
-- changing return regimes
-- volatility clustering
-- market cycles
+- changing return regimes  
+- volatility clustering  
+- market cycles  
 
+---
 
-
-Monte Carlo Risk Distribution
+## Monte Carlo Risk Distribution
 
 Simulates long-term outcomes to estimate:
 
-- terminal wealth
-- maximum drawdown risk
-- loss probabilities
-- tail risk scenarios
+- terminal wealth  
+- maximum drawdown risk  
+- loss probabilities  
+- tail risk scenarios  
 
+---
 
+# Project Structure
 
-PROJECT STRUCTURE
-
+```
 Portfolio-Engine
+│
+├ config.py
+├ data.py
+├ mpt.py
+├ frontier.py
+├ black_litterman.py
+├ simulation.py
+├ rollingfront.py
+├ dashboard.py
+├ report.py
+└ main.py
+```
 
-config.py
-data.py
-mpt.py
-frontier.py
-black_litterman.py
-simulation.py
-rollingfront.py
-dashboard.py
-report.py
-main.py
+---
 
+# Module Overview
 
-
-MODULE OVERVIEW
-
-config.py
+### config.py
 Defines the asset universe, portfolio weights, model assumptions, and constraints.
 
-data.py
+### data.py
 Downloads historical asset prices and computes returns.
 
-mpt.py
+### mpt.py
 Implements portfolio optimization functions.
 
-frontier.py
+### frontier.py
 Constructs the efficient frontier.
 
-black_litterman.py
+### black_litterman.py
 Calculates equilibrium returns and posterior expected returns using the Black-Litterman framework.
 
-simulation.py
+### simulation.py
 Runs multivariate Monte Carlo portfolio simulations.
 
-rollingfront.py
+### rollingfront.py
 Calculates rolling return and volatility statistics.
 
-dashboard.py
+### dashboard.py
 Generates portfolio diagnostics including weight changes and risk contribution.
 
-report.py
+### report.py
 Builds performance summaries and cumulative return series.
 
-main.py
+### main.py
 Runs the full portfolio research pipeline.
 
+---
 
-
-USAGE
+# Usage
 
 Run the full portfolio model with:
 
+```
 python main.py
+```
 
 To rotate assets or test new portfolios, modify the asset universe and weights in:
 
+```
 config.py
+```
 
 Then rerun the model.
 
+---
 
+# Model Purpose
 
-MODEL PURPOSE
+This project is designed as a **portfolio research framework** that can be reused whenever assets are rotated or portfolio assumptions change.
 
-This project is designed as a portfolio research framework that can be reused whenever assets are rotated or portfolio assumptions change.
+The goal is to provide a **repeatable and transparent method for long-term portfolio construction and evaluation**.
 
-The goal is to provide a repeatable and transparent method for long-term portfolio construction and evaluation.
+---
 
+# Author
 
-
-AUTHOR
-
-Nick Clerv
-United States Air Force Academy
+**Nick Clervi**  
+United States Air Force Academy  
 Economics / Quantitative Finance Research
