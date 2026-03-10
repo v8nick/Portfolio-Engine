@@ -31,7 +31,7 @@ ALLOW_SHORTS = False
 WEIGHT_BOUNDS = (0.0, 0.40)  # no position bigger than 40%
 
 #monte carlo simulation parameters
-MC_YEARS = 20
+MC_YEARS = 10
 MC_N_SIMS = 10000
 MC_INITIAL_VALUE = 1.0
 MC_SEED = 42
