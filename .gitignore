@@ -1,4 +1,52 @@
-venv/
+# Python bytecode
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.env/
+.envrc
+.python-version
+
+# Jupyter checkpoints (if you ever use notebooks)
+.ipynb_checkpoints/
+
+# Mac OS files
 .DS_Store
+
+# Logs
+*.log
+
+# Data files (if you download datasets later)
+data/
+datasets/
+
+# Generated outputs
+figures/
+plots/
+outputs/
+results/
+
+# VS Code settings
+.vscode/
+
+# PyCharm settings
+.idea/
+
+# Temporary files
+*.tmp
+*.swp
+
+# Python build artifacts
+build/
+dist/
+*.egg-info/
+
+# Coverage reports
+.coverage
+htmlcov/
+
+# Environment variables
+.env
