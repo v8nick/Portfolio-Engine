@@ -1,0 +1,177 @@
+PORTFOLIO ENGINE
+
+A quantitative portfolio research engine for long-horizon asset allocation, portfolio optimization, and risk simulation.
+
+This project implements a repeatable workflow for portfolio construction using:
+
+- Black-Litterman expected return modeling
+- Mean-Variance Portfolio Optimization
+- Efficient Frontier and Capital Market Line
+- Rolling market regime analysis
+- Monte Carlo long-horizon risk simulations
+- Portfolio risk decomposition
+
+The model is designed to allow rapid asset rotation by editing a single configuration file and re-running the pipeline.
+
+
+
+KEY FEATURES
+
+PORTFOLIO OPTIMIZATION
+Computes optimal allocations using Modern Portfolio Theory.
+
+Outputs include:
+- Efficient Frontier
+- Maximum Sharpe portfolio
+- Minimum volatility portfolio
+
+
+
+BLACK-LITTERMAN RETURN MODEL
+
+Combines:
+- historical returns
+- market equilibrium returns
+- investor views
+
+to produce more stable expected return estimates than historical averages alone.
+
+
+
+LONG HORIZON RISK SIMULATION
+
+Uses multivariate correlated Monte Carlo simulations to estimate:
+
+- terminal wealth distributions
+- drawdown probabilities
+- probability of portfolio loss
+- long-term compounding outcomes
+
+
+
+PORTFOLIO DIAGNOSTICS
+
+The engine generates a decision dashboard including:
+
+Current Portfolio Performance
+Optimized Portfolio
+Suggested Weight Changes
+Risk Contribution by Asset
+Monte Carlo Risk Profile
+
+
+
+EXAMPLE OUTPUTS
+
+Efficient Frontier
+
+Shows the optimal tradeoff between expected return and volatility.
+
+Key points plotted:
+- Current portfolio
+- Maximum Sharpe portfolio
+- Minimum volatility portfolio
+- SPY benchmark
+- QQQ benchmark
+
+
+
+Rolling Market Environment
+
+Uses a rolling 5-year window to show:
+
+- changing return regimes
+- volatility clustering
+- market cycles
+
+
+
+Monte Carlo Risk Distribution
+
+Simulates long-term outcomes to estimate:
+
+- terminal wealth
+- maximum drawdown risk
+- loss probabilities
+- tail risk scenarios
+
+
+
+PROJECT STRUCTURE
+
+Portfolio-Engine
+
+config.py
+data.py
+mpt.py
+frontier.py
+black_litterman.py
+simulation.py
+rollingfront.py
+dashboard.py
+report.py
+main.py
+
+
+
+MODULE OVERVIEW
+
+config.py
+Defines the asset universe, portfolio weights, model assumptions, and constraints.
+
+data.py
+Downloads historical asset prices and computes returns.
+
+mpt.py
+Implements portfolio optimization functions.
+
+frontier.py
+Constructs the efficient frontier.
+
+black_litterman.py
+Calculates equilibrium returns and posterior expected returns using the Black-Litterman framework.
+
+simulation.py
+Runs multivariate Monte Carlo portfolio simulations.
+
+rollingfront.py
+Calculates rolling return and volatility statistics.
+
+dashboard.py
+Generates portfolio diagnostics including weight changes and risk contribution.
+
+report.py
+Builds performance summaries and cumulative return series.
+
+main.py
+Runs the full portfolio research pipeline.
+
+
+
+USAGE
+
+Run the full portfolio model with:
+
+python main.py
+
+To rotate assets or test new portfolios, modify the asset universe and weights in:
+
+config.py
+
+Then rerun the model.
+
+
+
+MODEL PURPOSE
+
+This project is designed as a portfolio research framework that can be reused whenever assets are rotated or portfolio assumptions change.
+
+The goal is to provide a repeatable and transparent method for long-term portfolio construction and evaluation.
+
+
+
+AUTHOR
+
+Nick Clerv
+United States Air Force Academy
+Economics / Quantitative Finance Research
