@@ -6,6 +6,7 @@ import pandas as pd
 from frontier import efficient_frontier
 from rollingfront import rolling_statistics
 from black_litterman import black_litterman_posterior
+from factors import fama_french_regression
 
 from dashboard import (
     current_portfolio_performance,
@@ -14,6 +15,11 @@ from dashboard import (
     risk_contribution,
     monte_carlo_risk_report,
 )
+from report import (
+    build_portfolio_return_series,
+    cumulative_growth,
+    summary_table,
+    export_quantstats_report,)
 from config import (
     TICKERS,
     BENCHMARK,
@@ -35,20 +41,13 @@ from config import (
     BL_RELATIVE_VIEWS,
     FIXED_WEIGHTS,
     MIN_WEIGHTS,
+    GENERATE_QUANTSTATS_REPORT,
+    QUANTSTATS_OUTPUT,
+    USE_COV_SHRINKAGE,
+    COV_SHRINKAGE_METHOD,
 )
 from data import download_prices, compute_returns
-from mpt import (
-    annualize_mean_cov,
-    optimize_max_sharpe,
-    optimize_min_vol,
-    portfolio_stats,
-    weights_dict_to_array,
-)
-from report import (
-    build_portfolio_return_series,
-    cumulative_growth,
-    summary_table,
-)
+
 from simulation import (
     simulate_portfolio_paths,
     terminal_value_stats,
@@ -79,8 +78,16 @@ def main() -> None:
     asset_returns = returns[TICKERS]
     benchmark_returns = returns[BENCHMARK]
 
-    hist_mu, cov = annualize_mean_cov(asset_returns, TRADING_DAYS)
-
+    hist_mu, cov = annualize_mean_cov(
+    asset_returns,
+    trading_days=TRADING_DAYS,
+    use_shrinkage=USE_COV_SHRINKAGE,
+    shrinkage_method=COV_SHRINKAGE_METHOD,
+)
+    if USE_COV_SHRINKAGE:
+        print(f"\nUsing covariance shrinkage: {COV_SHRINKAGE_METHOD}")
+    else:
+        print("\nUsing sample covariance")
     if USE_BLACK_LITTERMAN:
         market_weights = weights_dict_to_array(BL_MARKET_WEIGHTS, TICKERS)
         mu, pi = black_litterman_posterior(
@@ -89,7 +96,6 @@ def main() -> None:
         risk_aversion=BL_RISK_AVERSION,
         tau=BL_TAU,
         absolute_views=BL_ABSOLUTE_VIEWS,
-        relative_views=BL_RELATIVE_VIEWS,
     )
 
         print("\nImplied Equilibrium Returns (Pi)")
@@ -139,7 +145,20 @@ def main() -> None:
     base_series = build_portfolio_return_series(asset_returns, base_weights, TICKERS)
     max_sharpe_series = build_portfolio_return_series(asset_returns, max_sharpe_weights, TICKERS)
     min_vol_series = build_portfolio_return_series(asset_returns, min_vol_weights, TICKERS)
+    print("\n" + "=" * 60)
+    print("FAMA-FRENCH 3 FACTOR REGRESSION")
+    print("=" * 60)
 
+    ff_model = fama_french_regression(base_series)
+
+    print(ff_model.summary())
+    if GENERATE_QUANTSTATS_REPORT:
+        export_quantstats_report(
+            portfolio_returns=base_series,
+            benchmark_returns=benchmark_returns,
+            output_path=QUANTSTATS_OUTPUT,
+        )
+        print(f"\nQuantStats report saved to: {QUANTSTATS_OUTPUT}")
     print("\nDetailed Summary: Base Portfolio")
     print(summary_table(base_series, benchmark_returns, RISK_FREE_RATE, TRADING_DAYS))
     mc_paths = simulate_portfolio_paths(

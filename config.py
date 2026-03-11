@@ -75,3 +75,8 @@ MIN_WEIGHTS = {
     "IWM": 0.05,
     "LMT": 0.05,
 }
+USE_PYPORTFOLIOOPT = True
+GENERATE_QUANTSTATS_REPORT = True
+QUANTSTATS_OUTPUT = "quantstats_report.html"
+USE_COV_SHRINKAGE = True
+COV_SHRINKAGE_METHOD = "ledoit_wolf"
