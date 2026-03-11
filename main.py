@@ -1,5 +1,4 @@
 # main.py
-
 from __future__ import annotations
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -7,6 +6,13 @@ from frontier import efficient_frontier
 from rollingfront import rolling_statistics
 from black_litterman import black_litterman_posterior
 from factors import fama_french_regression, factor_summary_table
+import numpy as np
+
+from implementation import (
+    apply_implementation_layer,
+    net_expected_return_after_all_costs,
+    implementation_summary_table,
+)
 
 from dashboard import (
     current_portfolio_performance,
@@ -38,13 +44,21 @@ from config import (
     BL_RISK_AVERSION,
     BL_TAU,
     BL_ABSOLUTE_VIEWS,
-    BL_RELATIVE_VIEWS,
     FIXED_WEIGHTS,
     MIN_WEIGHTS,
     GENERATE_QUANTSTATS_REPORT,
     QUANTSTATS_OUTPUT,
     USE_COV_SHRINKAGE,
     COV_SHRINKAGE_METHOD,
+    IMPLEMENTATION_LAYER,
+    TURNOVER_PENALTY_LAMBDA,
+    TRANSACTION_COST_BPS,
+    SLIPPAGE_BPS,
+    APPLY_TAX_EFFECTS,
+    SHORT_TERM_TAX_RATE,
+    LONG_TERM_TAX_RATE,
+    LONG_TERM_FRACTION,
+    DEFAULT_UNREALIZED_GAIN_RATE,
 )
 from data import download_prices, compute_returns
 
@@ -55,7 +69,6 @@ from simulation import (
 )
 from mpt import (
     annualize_mean_cov,
-    optimize_max_sharpe,
     optimize_min_vol,
     optimize_max_sharpe_constrained,
     portfolio_stats,
@@ -79,11 +92,11 @@ def main() -> None:
     benchmark_returns = returns[BENCHMARK]
 
     hist_mu, cov = annualize_mean_cov(
-    asset_returns,
-    trading_days=TRADING_DAYS,
-    use_shrinkage=USE_COV_SHRINKAGE,
-    shrinkage_method=COV_SHRINKAGE_METHOD,
-)
+        asset_returns,
+        trading_days=TRADING_DAYS,
+        use_shrinkage=USE_COV_SHRINKAGE,
+        shrinkage_method=COV_SHRINKAGE_METHOD,
+    )
     if USE_COV_SHRINKAGE:
         print(f"\nUsing covariance shrinkage: {COV_SHRINKAGE_METHOD}")
     else:
@@ -91,12 +104,12 @@ def main() -> None:
     if USE_BLACK_LITTERMAN:
         market_weights = weights_dict_to_array(BL_MARKET_WEIGHTS, TICKERS)
         mu, pi = black_litterman_posterior(
-        cov=cov,
-        market_weights=market_weights,
-        risk_aversion=BL_RISK_AVERSION,
-        tau=BL_TAU,
-        absolute_views=BL_ABSOLUTE_VIEWS,
-    )
+            cov=cov,
+            market_weights=market_weights,
+            risk_aversion=BL_RISK_AVERSION,
+            tau=BL_TAU,
+            absolute_views=BL_ABSOLUTE_VIEWS,
+        )
 
         print("\nImplied Equilibrium Returns (Pi)")
         print(pi.round(4))
@@ -116,9 +129,18 @@ def main() -> None:
 
     base_weights = weights_dict_to_array(BASE_WEIGHTS, TICKERS)
 
-    base_stats = portfolio_stats(base_weights, mu, cov, RISK_FREE_RATE)
-    max_sharpe_weights = optimize_max_sharpe_constrained(
+    mu_for_optimization = apply_implementation_layer(
         mu=mu,
+        current_weights=base_weights,
+        tickers=TICKERS,
+        implementation_layer=IMPLEMENTATION_LAYER,
+        turnover_penalty_lambda=TURNOVER_PENALTY_LAMBDA,
+    )
+
+    base_stats = portfolio_stats(base_weights, mu, cov, RISK_FREE_RATE)
+
+    max_sharpe_weights = optimize_max_sharpe_constrained(
+        mu=mu_for_optimization,
         cov=cov,
         rf=RISK_FREE_RATE,
         tickers=TICKERS,
@@ -126,6 +148,7 @@ def main() -> None:
         fixed_weights=FIXED_WEIGHTS,
         min_weights=MIN_WEIGHTS,
     )
+
     min_vol_weights = optimize_min_vol(mu, cov, bounds=WEIGHT_BOUNDS)
     max_sharpe_stats = portfolio_stats(max_sharpe_weights, mu, cov, RISK_FREE_RATE)
     min_vol_stats = portfolio_stats(min_vol_weights, mu, cov, RISK_FREE_RATE) 
@@ -133,6 +156,40 @@ def main() -> None:
     print_weights("Base Portfolio Weights", TICKERS, base_weights)
     print("\nBase Portfolio Stats")
     print(base_stats)
+
+    if IMPLEMENTATION_LAYER:
+        unrealized_gains_rates = (
+            np.array([DEFAULT_UNREALIZED_GAIN_RATE] * len(TICKERS))
+            if APPLY_TAX_EFFECTS
+            else None
+        )
+
+        implementation_report = net_expected_return_after_all_costs(
+            gross_expected_return=max_sharpe_stats["expected_return"],
+            current_weights=base_weights,
+            target_weights=max_sharpe_weights,
+            transaction_cost_bps=TRANSACTION_COST_BPS,
+            slippage_bps=SLIPPAGE_BPS,
+            unrealized_gains_rates=unrealized_gains_rates,
+            short_term_tax_rate=SHORT_TERM_TAX_RATE,
+            long_term_tax_rate=LONG_TERM_TAX_RATE,
+            long_term_fraction=LONG_TERM_FRACTION,
+        )
+
+        print("\n" + "=" * 60)
+        print("IMPLEMENTATION COST ANALYSIS")
+        print("=" * 60)
+        for k, v in implementation_report.items():
+            print(f"{k}: {v:.4f}")
+
+        print("\nImplementation Trade Table")
+        print(
+            implementation_summary_table(
+                tickers=TICKERS,
+                current_weights=base_weights,
+                target_weights=max_sharpe_weights,
+            ).round(4).to_string(index=False)
+        )
 
     print_weights("Max Sharpe Weights", TICKERS, max_sharpe_weights)
     print("Max Sharpe Stats")
