@@ -103,3 +103,9 @@ DEFAULT_UNREALIZED_GAIN_RATE = 0.20
 
 USE_COV_SHRINKAGE = True
 COV_SHRINKAGE_METHOD = "ledoit_wolf"
+# =========================
+# WALK-FORWARD BACKTEST
+# =========================
+RUN_WALKFORWARD_BACKTEST = True
+WF_WINDOW_DAYS = 252 * 3
+WF_REBALANCE_FREQ = "ME"
