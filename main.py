@@ -6,7 +6,7 @@ import pandas as pd
 from frontier import efficient_frontier
 from rollingfront import rolling_statistics
 from black_litterman import black_litterman_posterior
-from factors import fama_french_regression
+from factors import fama_french_regression, factor_summary_table
 
 from dashboard import (
     current_portfolio_performance,
@@ -146,12 +146,14 @@ def main() -> None:
     max_sharpe_series = build_portfolio_return_series(asset_returns, max_sharpe_weights, TICKERS)
     min_vol_series = build_portfolio_return_series(asset_returns, min_vol_weights, TICKERS)
     print("\n" + "=" * 60)
-    print("FAMA-FRENCH 3 FACTOR REGRESSION")
+    print("FAMA-FRENCH 5 FACTOR REGRESSION")
     print("=" * 60)
 
-    ff_model = fama_french_regression(base_series)
+    ff5_model = fama_french_regression(base_series, model="ff5")
+    print(ff5_model.summary())
 
-    print(ff_model.summary())
+    print("\nFAMA-FRENCH 5 FACTOR TABLE")
+    print(factor_summary_table(ff5_model).round(4))
     if GENERATE_QUANTSTATS_REPORT:
         export_quantstats_report(
             portfolio_returns=base_series,
