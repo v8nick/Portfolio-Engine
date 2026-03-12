@@ -1,9 +1,10 @@
 # report.py
 
 from __future__ import annotations
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
-import quantstats as qs
 
 def build_portfolio_return_series(
     returns: pd.DataFrame,
@@ -99,7 +100,6 @@ def summary_table(
     })
 
     return pd.DataFrame(stats, index=["Portfolio"]).T
-    import quantstats as qs
 
 
 def export_quantstats_report(
@@ -107,8 +107,12 @@ def export_quantstats_report(
     benchmark_returns: pd.Series | None = None,
     output_path: str = "quantstats_report.html",
 ) -> None:
+    import quantstats as qs
+
     port = portfolio_returns.dropna().copy()
     port.index = pd.to_datetime(port.index)
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
 
     if benchmark_returns is not None:
         bench = benchmark_returns.dropna().copy()
@@ -116,12 +120,12 @@ def export_quantstats_report(
         qs.reports.html(
             port,
             benchmark=bench,
-            output=output_path,
+            output=str(output),
             title="Portfolio QuantStats Report",
         )
     else:
         qs.reports.html(
             port,
-            output=output_path,
+            output=str(output),
             title="Portfolio QuantStats Report",
         )

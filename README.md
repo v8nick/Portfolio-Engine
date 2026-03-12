@@ -2,7 +2,12 @@
 
 A quantitative portfolio research engine for **long-horizon asset allocation, portfolio optimization, and risk simulation**.
 
-This project implements a repeatable workflow for portfolio construction using:
+This project implements two repeatable workflows:
+
+- a live engine for rebalance decisions on the current portfolio
+- a research engine for testing new baskets and portfolio ideas
+
+Core and research analytics across the repo include:
 
 - Black-Litterman expected return modeling  
 - Mean-Variance Portfolio Optimization  
@@ -11,7 +16,7 @@ This project implements a repeatable workflow for portfolio construction using:
 - Monte Carlo long-horizon risk simulations  
 - Portfolio risk decomposition  
 
-The model is designed to allow **rapid asset rotation** by editing a single configuration file and re-running the pipeline.
+The model is designed to allow **rapid asset rotation** by editing the live or research configuration and re-running the relevant entrypoint.
 
 ---
 
@@ -140,11 +145,10 @@ Shows the optimal tradeoff between **expected return and volatility**.
 
 Key points plotted:
 
-- Current portfolio  
+- Starting portfolio  
 - Maximum Sharpe portfolio  
 - Minimum volatility portfolio  
-- SPY benchmark  
-- QQQ benchmark  
+- configured benchmark  
 
 ---
 
@@ -171,10 +175,14 @@ Simulates long-term outcomes to estimate:
 
 # Project Structure
 
-```
+```text
 Portfolio-Engine
 │
-├ config.py
+├ config/
+│ ├ __init__.py
+│ ├ shared.py
+│ ├ live.py
+│ └ research.py
 ├ data.py
 ├ mpt.py
 ├ frontier.py
@@ -183,6 +191,8 @@ Portfolio-Engine
 ├ rollingfront.py
 ├ dashboard.py
 ├ report.py
+├ main_live.py
+├ main_research.py
 └ main.py
 ```
 
@@ -190,8 +200,14 @@ Portfolio-Engine
 
 # Module Overview
 
-### config.py
-Defines the asset universe, portfolio weights, model assumptions, and constraints.
+### config/shared.py
+Defines shared model assumptions and implementation-cost settings.
+
+### config/live.py
+Defines the live holdings universe, current weights, live constraints, and rebalance thresholds.
+
+### config/research.py
+Defines the candidate basket, research window, backtest settings, and research outputs.
 
 ### data.py
 Downloads historical asset prices and computes returns.
@@ -217,8 +233,50 @@ Generates portfolio diagnostics including weight changes and risk contribution.
 ### report.py
 Builds performance summaries and cumulative return series.
 
+### main_live.py
+Runs the live rebalance workflow.
+
+### main_research.py
+Runs the research workflow.
+
 ### main.py
-Runs the full portfolio research pipeline.
+Backwards-compatible dispatcher to the research workflow.
+
+---
+
+# Usage
+
+Run the live rebalance engine with:
+
+```
+python main_live.py
+```
+
+Run the research engine with:
+
+```
+python main_research.py
+```
+
+For backwards compatibility, `python main.py` still runs the research workflow.
+
+Update shared assumptions in:
+
+```text
+config/shared.py
+```
+
+Update live portfolio definitions in:
+
+```text
+config/live.py
+```
+
+Update research basket definitions in:
+
+```text
+config/research.py
+```
 
 ---
 
