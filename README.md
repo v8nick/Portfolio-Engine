@@ -252,13 +252,29 @@ Run the live rebalance engine with:
 python main_live.py
 ```
 
+Or use the launcher:
+
+- Windows: `run_live.bat`
+- macOS: `run_live.command`
+
 Run the research engine with:
 
 ```
 python main_research.py
 ```
 
+Or use the launcher:
+
+- Windows: `run_research.bat`
+- macOS: `run_research.command`
+
 For backwards compatibility, `python main.py` still runs the research workflow.
+
+The `.bat` and `.command` files will:
+
+1. Create `venv/` if it does not exist
+2. Sync `requirements.txt` on every run
+3. Run the matching engine
 
 Update shared assumptions in:
 
