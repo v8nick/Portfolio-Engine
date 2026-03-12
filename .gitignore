@@ -11,7 +11,7 @@ venv/
 .env/
 .envrc
 .python-version
-
+*quantstats*.html
 # Jupyter checkpoints (if you ever use notebooks)
 .ipynb_checkpoints/
 
