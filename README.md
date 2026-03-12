@@ -29,45 +29,57 @@ The model is designed to allow **rapid asset rotation** by editing the live or r
 
 # Usage
 
-## Windows
+There are two different launcher files depending on which engine you want to run:
 
-Double-click:
+- Live engine launcher: `run_live.bat` on Windows or `run_live.command` on macOS
+- Research engine launcher: `run_research.bat` on Windows or `run_research.command` on macOS
+
+Run the live rebalance engine with:
 
 ```
-run.bat
+python main_live.py
 ```
 
-This will automatically:
+Or use the launcher:
 
-- create a virtual environment  
-- install dependencies  
-- run the portfolio engine  
+- Windows: `run_live.bat` for the live engine
+- macOS: `run_live.command`
 
----
+Run the research engine with:
 
-## Mac / Linux
-
-Open Terminal in the project folder and run:
-
-```bash
-chmod +x run.command
-./run.command
+```
+python main_research.py
 ```
 
-This will:
+Or use the launcher:
 
-- create a virtual environment  
-- install dependencies  
-- run the portfolio engine  
+- Windows: `run_research.bat` for the research engine
+- macOS: `run_research.command`
 
----
+For backwards compatibility, `python main.py` still runs the research workflow.
 
-## Manual Run
+The `.bat` and `.command` files will:
 
-If you prefer running manually:
+1. Create `venv/` if it does not exist
+2. Sync `requirements.txt` on every run
+3. Run the matching engine
 
-```bash
-python main.py
+Update shared assumptions in:
+
+```text
+config/shared.py
+```
+
+Update live portfolio definitions in:
+
+```text
+config/live.py
+```
+
+Update research basket definitions in:
+
+```text
+config/research.py
 ```
 
 ---
