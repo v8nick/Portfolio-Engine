@@ -246,6 +246,11 @@ Backwards-compatible dispatcher to the research workflow.
 
 # Usage
 
+There are two different launcher files depending on which engine you want to run:
+
+- Live engine launcher: `run_live.bat` on Windows or `run_live.command` on macOS
+- Research engine launcher: `run_research.bat` on Windows or `run_research.command` on macOS
+
 Run the live rebalance engine with:
 
 ```
@@ -254,7 +259,7 @@ python main_live.py
 
 Or use the launcher:
 
-- Windows: `run_live.bat`
+- Windows: `run_live.bat` for the live engine
 - macOS: `run_live.command`
 
 Run the research engine with:
@@ -265,7 +270,7 @@ python main_research.py
 
 Or use the launcher:
 
-- Windows: `run_research.bat`
+- Windows: `run_research.bat` for the research engine
 - macOS: `run_research.command`
 
 For backwards compatibility, `python main.py` still runs the research workflow.
