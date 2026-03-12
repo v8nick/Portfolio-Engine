@@ -1,11 +1,19 @@
 # main.py
-
 from __future__ import annotations
 import matplotlib.pyplot as plt
 import pandas as pd
 from frontier import efficient_frontier
 from rollingfront import rolling_statistics
 from black_litterman import black_litterman_posterior
+from factors import fama_french_regression, factor_summary_table
+import numpy as np
+from walkforward import rolling_black_litterman_backtest
+
+from implementation import (
+    apply_implementation_layer,
+    net_expected_return_after_all_costs,
+    implementation_summary_table,
+)
 
 from dashboard import (
     current_portfolio_performance,
@@ -14,6 +22,11 @@ from dashboard import (
     risk_contribution,
     monte_carlo_risk_report,
 )
+from report import (
+    build_portfolio_return_series,
+    cumulative_growth,
+    summary_table,
+    export_quantstats_report,)
 from config import (
     TICKERS,
     BENCHMARK,
@@ -32,23 +45,27 @@ from config import (
     BL_RISK_AVERSION,
     BL_TAU,
     BL_ABSOLUTE_VIEWS,
-    BL_RELATIVE_VIEWS,
     FIXED_WEIGHTS,
     MIN_WEIGHTS,
+    GENERATE_QUANTSTATS_REPORT,
+    QUANTSTATS_OUTPUT,
+    USE_COV_SHRINKAGE,
+    COV_SHRINKAGE_METHOD,
+    IMPLEMENTATION_LAYER,
+    TURNOVER_PENALTY_LAMBDA,
+    TRANSACTION_COST_BPS,
+    SLIPPAGE_BPS,
+    APPLY_TAX_EFFECTS,
+    SHORT_TERM_TAX_RATE,
+    LONG_TERM_TAX_RATE,
+    LONG_TERM_FRACTION,
+    DEFAULT_UNREALIZED_GAIN_RATE,
+    RUN_WALKFORWARD_BACKTEST,
+    WF_WINDOW_DAYS,
+    WF_REBALANCE_FREQ,
 )
 from data import download_prices, compute_returns
-from mpt import (
-    annualize_mean_cov,
-    optimize_max_sharpe,
-    optimize_min_vol,
-    portfolio_stats,
-    weights_dict_to_array,
-)
-from report import (
-    build_portfolio_return_series,
-    cumulative_growth,
-    summary_table,
-)
+
 from simulation import (
     simulate_portfolio_paths,
     terminal_value_stats,
@@ -56,7 +73,6 @@ from simulation import (
 )
 from mpt import (
     annualize_mean_cov,
-    optimize_max_sharpe,
     optimize_min_vol,
     optimize_max_sharpe_constrained,
     portfolio_stats,
@@ -79,18 +95,25 @@ def main() -> None:
     asset_returns = returns[TICKERS]
     benchmark_returns = returns[BENCHMARK]
 
-    hist_mu, cov = annualize_mean_cov(asset_returns, TRADING_DAYS)
-
+    hist_mu, cov = annualize_mean_cov(
+        asset_returns,
+        trading_days=TRADING_DAYS,
+        use_shrinkage=USE_COV_SHRINKAGE,
+        shrinkage_method=COV_SHRINKAGE_METHOD,
+    )
+    if USE_COV_SHRINKAGE:
+        print(f"\nUsing covariance shrinkage: {COV_SHRINKAGE_METHOD}")
+    else:
+        print("\nUsing sample covariance")
     if USE_BLACK_LITTERMAN:
         market_weights = weights_dict_to_array(BL_MARKET_WEIGHTS, TICKERS)
         mu, pi = black_litterman_posterior(
-        cov=cov,
-        market_weights=market_weights,
-        risk_aversion=BL_RISK_AVERSION,
-        tau=BL_TAU,
-        absolute_views=BL_ABSOLUTE_VIEWS,
-        relative_views=BL_RELATIVE_VIEWS,
-    )
+            cov=cov,
+            market_weights=market_weights,
+            risk_aversion=BL_RISK_AVERSION,
+            tau=BL_TAU,
+            absolute_views=BL_ABSOLUTE_VIEWS,
+        )
 
         print("\nImplied Equilibrium Returns (Pi)")
         print(pi.round(4))
@@ -110,9 +133,18 @@ def main() -> None:
 
     base_weights = weights_dict_to_array(BASE_WEIGHTS, TICKERS)
 
-    base_stats = portfolio_stats(base_weights, mu, cov, RISK_FREE_RATE)
-    max_sharpe_weights = optimize_max_sharpe_constrained(
+    mu_for_optimization = apply_implementation_layer(
         mu=mu,
+        current_weights=base_weights,
+        tickers=TICKERS,
+        implementation_layer=IMPLEMENTATION_LAYER,
+        turnover_penalty_lambda=TURNOVER_PENALTY_LAMBDA,
+    )
+
+    base_stats = portfolio_stats(base_weights, mu, cov, RISK_FREE_RATE)
+
+    max_sharpe_weights = optimize_max_sharpe_constrained(
+        mu=mu_for_optimization,
         cov=cov,
         rf=RISK_FREE_RATE,
         tickers=TICKERS,
@@ -120,6 +152,7 @@ def main() -> None:
         fixed_weights=FIXED_WEIGHTS,
         min_weights=MIN_WEIGHTS,
     )
+
     min_vol_weights = optimize_min_vol(mu, cov, bounds=WEIGHT_BOUNDS)
     max_sharpe_stats = portfolio_stats(max_sharpe_weights, mu, cov, RISK_FREE_RATE)
     min_vol_stats = portfolio_stats(min_vol_weights, mu, cov, RISK_FREE_RATE) 
@@ -127,6 +160,40 @@ def main() -> None:
     print_weights("Base Portfolio Weights", TICKERS, base_weights)
     print("\nBase Portfolio Stats")
     print(base_stats)
+
+    if IMPLEMENTATION_LAYER:
+        unrealized_gains_rates = (
+            np.array([DEFAULT_UNREALIZED_GAIN_RATE] * len(TICKERS))
+            if APPLY_TAX_EFFECTS
+            else None
+        )
+
+        implementation_report = net_expected_return_after_all_costs(
+            gross_expected_return=max_sharpe_stats["expected_return"],
+            current_weights=base_weights,
+            target_weights=max_sharpe_weights,
+            transaction_cost_bps=TRANSACTION_COST_BPS,
+            slippage_bps=SLIPPAGE_BPS,
+            unrealized_gains_rates=unrealized_gains_rates,
+            short_term_tax_rate=SHORT_TERM_TAX_RATE,
+            long_term_tax_rate=LONG_TERM_TAX_RATE,
+            long_term_fraction=LONG_TERM_FRACTION,
+        )
+
+        print("\n" + "=" * 60)
+        print("IMPLEMENTATION COST ANALYSIS")
+        print("=" * 60)
+        for k, v in implementation_report.items():
+            print(f"{k}: {v:.4f}")
+
+        print("\nImplementation Trade Table")
+        print(
+            implementation_summary_table(
+                tickers=TICKERS,
+                current_weights=base_weights,
+                target_weights=max_sharpe_weights,
+            ).round(4).to_string(index=False)
+        )
 
     print_weights("Max Sharpe Weights", TICKERS, max_sharpe_weights)
     print("Max Sharpe Stats")
@@ -139,9 +206,72 @@ def main() -> None:
     base_series = build_portfolio_return_series(asset_returns, base_weights, TICKERS)
     max_sharpe_series = build_portfolio_return_series(asset_returns, max_sharpe_weights, TICKERS)
     min_vol_series = build_portfolio_return_series(asset_returns, min_vol_weights, TICKERS)
+    print("\n" + "=" * 60)
+    print("FAMA-FRENCH 5 FACTOR REGRESSION")
+    print("=" * 60)
+    wf_series = None
+    wf_weights = None
+    wf_diag = None
 
+    if RUN_WALKFORWARD_BACKTEST:
+        print("\n" + "=" * 60)
+        print("WALK-FORWARD OUT-OF-SAMPLE BACKTEST")
+        print("=" * 60)
+
+        wf_series, wf_weights, wf_diag = rolling_black_litterman_backtest(
+            asset_returns=asset_returns,
+            tickers=TICKERS,
+            trading_days=TRADING_DAYS,
+            risk_free_rate=RISK_FREE_RATE,
+            weight_bounds=WEIGHT_BOUNDS,
+            fixed_weights=FIXED_WEIGHTS,
+            min_weights=MIN_WEIGHTS,
+            window_days=WF_WINDOW_DAYS,
+            rebalance_freq=WF_REBALANCE_FREQ,
+            use_black_litterman=USE_BLACK_LITTERMAN,
+            bl_market_weights=BL_MARKET_WEIGHTS,
+            bl_risk_aversion=BL_RISK_AVERSION,
+            bl_tau=BL_TAU,
+            bl_absolute_views=BL_ABSOLUTE_VIEWS,
+            use_cov_shrinkage=USE_COV_SHRINKAGE,
+            cov_shrinkage_method=COV_SHRINKAGE_METHOD,
+            implementation_layer=IMPLEMENTATION_LAYER,
+            turnover_penalty_lambda=TURNOVER_PENALTY_LAMBDA,
+            starting_weights=base_weights,
+        )
+
+        print("\nWalk-forward summary:")
+        print(summary_table(wf_series, benchmark_returns.loc[wf_series.index], RISK_FREE_RATE, TRADING_DAYS))
+
+        print("\nLatest walk-forward weights:")
+        print(
+            wf_weights.tail(1).T.rename(columns={wf_weights.index[-1]: "weight"}).round(4)
+        )
+
+        print("\nRecent rebalance diagnostics:")
+        print(wf_diag.tail().round(4))
+    
+    ff5_model = fama_french_regression(base_series, model="ff5")
+    print(ff5_model.summary())
+
+    print("\nFAMA-FRENCH 5 FACTOR TABLE")
+    print(factor_summary_table(ff5_model).round(4))
+    if GENERATE_QUANTSTATS_REPORT:
+        export_quantstats_report(
+            portfolio_returns=base_series,
+            benchmark_returns=benchmark_returns,
+            output_path=QUANTSTATS_OUTPUT,
+        )
+        print(f"\nQuantStats report saved to: {QUANTSTATS_OUTPUT}")
     print("\nDetailed Summary: Base Portfolio")
     print(summary_table(base_series, benchmark_returns, RISK_FREE_RATE, TRADING_DAYS))
+    if RUN_WALKFORWARD_BACKTEST and wf_series is not None:
+        export_quantstats_report(
+            portfolio_returns=wf_series,
+            benchmark_returns=benchmark_returns.loc[wf_series.index],
+            output_path="quantstats_walkforward_report.html",
+        )
+        print("\nWalk-forward QuantStats report saved to: quantstats_walkforward_report.html")
     mc_paths = simulate_portfolio_paths(
         weights=base_weights,
         mu=mu,
@@ -152,6 +282,16 @@ def main() -> None:
         initial_value=MC_INITIAL_VALUE,
         seed=MC_SEED,
     )
+    if RUN_WALKFORWARD_BACKTEST and wf_series is not None:
+        print("\n" + "=" * 60)
+        print("WALK-FORWARD FAMA-FRENCH 5 FACTOR REGRESSION")
+        print("=" * 60)
+
+        wf_ff5_model = fama_french_regression(wf_series, model="ff5")
+        print(wf_ff5_model.summary())
+
+        print("\nWALK-FORWARD FAMA-FRENCH 5 FACTOR TABLE")
+        print(factor_summary_table(wf_ff5_model).round(4))
 
     mc_terminal = terminal_value_stats(mc_paths)
     mc_drawdowns = drawdown_stats(mc_paths)
@@ -215,12 +355,18 @@ def main() -> None:
     for k, v in mc_drawdowns.items():
         print(f"{k}: {v:.4f}")
         
-    growth_df = pd.DataFrame({
+    growth_dict = {
         "Base Portfolio": cumulative_growth(base_series),
         "Max Sharpe": cumulative_growth(max_sharpe_series),
         "Min Vol": cumulative_growth(min_vol_series),
         BENCHMARK: cumulative_growth(benchmark_returns),
-    })
+    }
+
+    if RUN_WALKFORWARD_BACKTEST and wf_series is not None:
+        growth_dict["Walk-Forward OOS"] = cumulative_growth(wf_series)
+
+    growth_df = pd.DataFrame(growth_dict)
+
     frontier_vol, frontier_ret, _ = efficient_frontier(
     mu,
     cov,
@@ -238,10 +384,8 @@ def main() -> None:
     min_vol_ret = min_vol_stats["expected_return"]
     min_vol_vol = min_vol_stats["volatility"]
 
-    spy_ret = benchmark_returns.mean() * TRADING_DAYS
     spy_vol = benchmark_returns.std() * (TRADING_DAYS ** 0.5)
 
-    qqq_ret = mu["QQQ"]
     qqq_vol = asset_returns["QQQ"].std() * (TRADING_DAYS ** 0.5)
     #cap mkt chart
     qqq_ret = float(mu["QQQ"])
@@ -257,6 +401,16 @@ def main() -> None:
         0.0,
         max(frontier_vol.max(), spy_vol, qqq_vol) * 1.1
     ])
+    plt.figure(figsize=(10, 6))
+    for col in growth_df.columns:
+        plt.plot(growth_df.index, growth_df[col], label=col)
+
+    plt.title("Cumulative Growth")
+    plt.xlabel("Date")
+    plt.ylabel("Growth of $1")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
     cml_y = RISK_FREE_RATE + max_sharpe_slope * cml_x
     plt.figure(figsize=(10, 6))

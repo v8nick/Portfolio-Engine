@@ -1,5 +1,10 @@
-numpy
-pandas
-yfinance
-scipy
-matplotlib
+numpy==1.26.4
+pandas==2.2.3
+scipy==1.13.1
+statsmodels==0.14.2
+matplotlib==3.8.4
+requests==2.32.5
+yfinance==0.2.40
+quantstats==0.0.81
+cvxpy==1.5.3
+pyportfolioopt==1.5.6

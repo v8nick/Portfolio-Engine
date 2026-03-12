@@ -3,7 +3,7 @@
 from __future__ import annotations
 import numpy as np
 import pandas as pd
-
+import quantstats as qs
 
 def build_portfolio_return_series(
     returns: pd.DataFrame,
@@ -99,3 +99,29 @@ def summary_table(
     })
 
     return pd.DataFrame(stats, index=["Portfolio"]).T
+    import quantstats as qs
+
+
+def export_quantstats_report(
+    portfolio_returns: pd.Series,
+    benchmark_returns: pd.Series | None = None,
+    output_path: str = "quantstats_report.html",
+) -> None:
+    port = portfolio_returns.dropna().copy()
+    port.index = pd.to_datetime(port.index)
+
+    if benchmark_returns is not None:
+        bench = benchmark_returns.dropna().copy()
+        bench.index = pd.to_datetime(bench.index)
+        qs.reports.html(
+            port,
+            benchmark=bench,
+            output=output_path,
+            title="Portfolio QuantStats Report",
+        )
+    else:
+        qs.reports.html(
+            port,
+            output=output_path,
+            title="Portfolio QuantStats Report",
+        )

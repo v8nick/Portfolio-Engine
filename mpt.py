@@ -1,20 +1,29 @@
-# mpt.py
-
 from __future__ import annotations
 import numpy as np
 import pandas as pd
-from scipy.optimize import minimize
+from pypfopt import EfficientFrontier
+from pypfopt import risk_models
 
+from pypfopt import risk_models
 
 def annualize_mean_cov(
     returns: pd.DataFrame,
-    trading_days: int = 252
+    trading_days: int = 252,
+    use_shrinkage: bool = False,
+    shrinkage_method: str = "ledoit_wolf",
 ) -> tuple[pd.Series, pd.DataFrame]:
-    """
-    Compute annualized mean returns and covariance matrix.
-    """
     mu = returns.mean() * trading_days
-    cov = returns.cov() * trading_days
+
+    if use_shrinkage:
+        cov = risk_models.risk_matrix(
+            returns,
+            method=shrinkage_method,
+            returns_data=True,
+            frequency=trading_days,
+        )
+    else:
+        cov = returns.cov() * trading_days
+
     return mu, cov
 
 
@@ -45,72 +54,6 @@ def portfolio_stats(weights: np.ndarray, mu: pd.Series, cov: pd.DataFrame, rf: f
     }
 
 
-def _weight_sum_constraint(weights: np.ndarray) -> float:
-    return np.sum(weights) - 1.0
-
-
-def optimize_max_sharpe(
-    mu: pd.Series,
-    cov: pd.DataFrame,
-    rf: float,
-    bounds: tuple[float, float] = (0.0, 1.0)
-) -> np.ndarray:
-    """
-    Maximize Sharpe ratio subject to weights summing to 1.
-    """
-    n = len(mu)
-    x0 = np.repeat(1 / n, n)
-    bnds = [bounds] * n
-    constraints = [{"type": "eq", "fun": _weight_sum_constraint}]
-
-    def objective(weights: np.ndarray) -> float:
-        sharpe = portfolio_sharpe(weights, mu, cov, rf)
-        return -sharpe
-
-    result = minimize(
-        objective,
-        x0=x0,
-        method="SLSQP",
-        bounds=bnds,
-        constraints=constraints,
-    )
-
-    if not result.success:
-        raise RuntimeError(f"Max-Sharpe optimization failed: {result.message}")
-
-    return result.x
-
-
-def optimize_min_vol(
-    mu: pd.Series,
-    cov: pd.DataFrame,
-    bounds: tuple[float, float] = (0.0, 1.0)
-) -> np.ndarray:
-    """
-    Minimize volatility subject to weights summing to 1.
-    """
-    n = len(mu)
-    x0 = np.repeat(1 / n, n)
-    bnds = [bounds] * n
-    constraints = [{"type": "eq", "fun": _weight_sum_constraint}]
-
-    def objective(weights: np.ndarray) -> float:
-        return portfolio_volatility(weights, cov)
-
-    result = minimize(
-        objective,
-        x0=x0,
-        method="SLSQP",
-        bounds=bnds,
-        constraints=constraints,
-    )
-
-    if not result.success:
-        raise RuntimeError(f"Min-vol optimization failed: {result.message}")
-
-    return result.x
-
-
 def weights_dict_to_array(weight_map: dict[str, float], ordered_assets: list[str]) -> np.ndarray:
     return np.array([weight_map[t] for t in ordered_assets], dtype=float)
 
@@ -121,6 +64,34 @@ def normalize_weights(weights: np.ndarray) -> np.ndarray:
         raise ValueError("Weight sum is zero.")
     return weights / total
 
+
+def _clean_weights_to_array(cleaned: dict[str, float], tickers: list[str]) -> np.ndarray:
+    return np.array([cleaned.get(t, 0.0) for t in tickers], dtype=float)
+
+
+def optimize_max_sharpe(
+    mu: pd.Series,
+    cov: pd.DataFrame,
+    rf: float,
+    bounds: tuple[float, float] = (0.0, 1.0)
+) -> np.ndarray:
+    ef = EfficientFrontier(mu, cov, weight_bounds=bounds)
+    ef.max_sharpe(risk_free_rate=rf)
+    cleaned = ef.clean_weights()
+    return _clean_weights_to_array(cleaned, list(mu.index))
+
+
+def optimize_min_vol(
+    mu: pd.Series,
+    cov: pd.DataFrame,
+    bounds: tuple[float, float] = (0.0, 1.0)
+) -> np.ndarray:
+    ef = EfficientFrontier(mu, cov, weight_bounds=bounds)
+    ef.min_volatility()
+    cleaned = ef.clean_weights()
+    return _clean_weights_to_array(cleaned, list(mu.index))
+
+
 def optimize_max_sharpe_constrained(
     mu: pd.Series,
     cov: pd.DataFrame,
@@ -130,47 +101,17 @@ def optimize_max_sharpe_constrained(
     fixed_weights: dict[str, float] | None = None,
     min_weights: dict[str, float] | None = None,
 ) -> np.ndarray:
-    """
-    Maximize Sharpe ratio with custom fixed and minimum weight constraints.
-    """
     fixed_weights = fixed_weights or {}
     min_weights = min_weights or {}
 
-    n = len(mu)
-    x0 = np.repeat(1 / n, n)
-    bnds = [bounds] * n
-
-    constraints = [{"type": "eq", "fun": _weight_sum_constraint}]
-
-    ticker_to_idx = {t: i for i, t in enumerate(tickers)}
+    ef = EfficientFrontier(mu, cov, weight_bounds=bounds)
 
     for ticker, value in fixed_weights.items():
-        idx = ticker_to_idx[ticker]
-        constraints.append({
-            "type": "eq",
-            "fun": lambda w, idx=idx, value=value: w[idx] - value
-        })
+        ef.add_constraint(lambda w, t=tickers.index(ticker), v=value: w[t] == v)
 
     for ticker, value in min_weights.items():
-        idx = ticker_to_idx[ticker]
-        constraints.append({
-            "type": "ineq",
-            "fun": lambda w, idx=idx, value=value: w[idx] - value
-        })
+        ef.add_constraint(lambda w, t=tickers.index(ticker), v=value: w[t] >= v)
 
-    def objective(weights: np.ndarray) -> float:
-        sharpe = portfolio_sharpe(weights, mu, cov, rf)
-        return -sharpe
-
-    result = minimize(
-        objective,
-        x0=x0,
-        method="SLSQP",
-        bounds=bnds,
-        constraints=constraints,
-    )
-
-    if not result.success:
-        raise RuntimeError(f"Constrained Max-Sharpe optimization failed: {result.message}")
-
-    return result.x
+    ef.max_sharpe(risk_free_rate=rf)
+    cleaned = ef.clean_weights()
+    return _clean_weights_to_array(cleaned, tickers)

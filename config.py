@@ -75,3 +75,37 @@ MIN_WEIGHTS = {
     "IWM": 0.05,
     "LMT": 0.05,
 }
+USE_PYPORTFOLIOOPT = True
+GENERATE_QUANTSTATS_REPORT = True
+QUANTSTATS_OUTPUT = "quantstats_report.html"
+USE_COV_SHRINKAGE = True
+COV_SHRINKAGE_METHOD = "ledoit_wolf"
+# =========================
+# IMPLEMENTATION LAYER
+# =========================
+IMPLEMENTATION_LAYER = False
+
+TURNOVER_PENALTY_LAMBDA = 0.50
+TRANSACTION_COST_BPS = 10
+SLIPPAGE_BPS = 5
+
+APPLY_TAX_EFFECTS = True
+SHORT_TERM_TAX_RATE = 0.35
+LONG_TERM_TAX_RATE = 0.15
+LONG_TERM_FRACTION = 0.50
+
+# Simple placeholder assumption:
+# each position has 20% embedded unrealized gain
+DEFAULT_UNREALIZED_GAIN_RATE = 0.20
+# =============================
+# COVARIANCE SETTINGS
+# =============================
+
+USE_COV_SHRINKAGE = True
+COV_SHRINKAGE_METHOD = "ledoit_wolf"
+# =========================
+# WALK-FORWARD BACKTEST
+# =========================
+RUN_WALKFORWARD_BACKTEST = True
+WF_WINDOW_DAYS = 252 * 3
+WF_REBALANCE_FREQ = "ME"
