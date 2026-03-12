@@ -20,9 +20,78 @@ The model is designed to allow **rapid asset rotation** by editing the live or r
 
 ---
 
+# Requirements
+
+- Python 3.10+
+- Internet connection (for downloading market data)
+
+---
+
+# Usage
+
+## Windows
+
+Double-click:
+
+```
+run.bat
+```
+
+This will automatically:
+
+- create a virtual environment  
+- install dependencies  
+- run the portfolio engine  
+
+---
+
+## Mac / Linux
+
+Open Terminal in the project folder and run:
+
+```bash
+chmod +x run.command
+./run.command
+```
+
+This will:
+
+- create a virtual environment  
+- install dependencies  
+- run the portfolio engine  
+
+---
+
+## Manual Run
+
+If you prefer running manually:
+
+```bash
+python main.py
+```
+
+---
+
+## Changing Assets
+
+To rotate assets or test new portfolios, modify:
+
+```
+config.py
+```
+
+Then rerun:
+
+```bash
+python main.py
+```
+
+---
+
 # Key Features
 
 ## Portfolio Optimization
+
 Computes optimal allocations using **Modern Portfolio Theory**.
 
 Outputs include:
