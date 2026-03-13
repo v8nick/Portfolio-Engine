@@ -324,5 +324,4 @@ The goal is to provide a **repeatable and transparent method for long-term portf
 # Author
 
 **Nicholas Clervi**  
-United States Air Force Academy  
 Economics / Quantitative Finance Research
