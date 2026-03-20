@@ -1,6 +1,6 @@
 # Portfolio Engine
 
-A quantitative portfolio research engine for **long-horizon asset allocation, portfolio optimization, and risk simulation**.
+A quantitative portfolio research engine for long-horizon asset allocation, portfolio optimization, and risk simulation.
 
 This project implements two repeatable workflows:
 
@@ -16,7 +16,7 @@ Core and research analytics across the repo include:
 - Monte Carlo long-horizon risk simulations  
 - Portfolio risk decomposition  
 
-The model is designed to allow **rapid asset rotation** by editing the live or research configuration and re-running the relevant entrypoint.
+The model is designed to allow rapid asset rotation by editing the live or research configuration and re-running the relevant entrypoint.
 
 ---
 
@@ -104,7 +104,7 @@ python main.py
 
 ## Portfolio Optimization
 
-Computes optimal allocations using **Modern Portfolio Theory**.
+Computes optimal allocations using Modern Portfolio Theory.
 
 Outputs include:
 
@@ -122,13 +122,13 @@ Combines:
 - market equilibrium returns  
 - investor views  
 
-to produce **more stable expected return estimates** than historical averages alone.
+to produce more stable expected return estimates than historical averages alone.
 
 ---
 
 ## Long Horizon Risk Simulation
 
-Uses **multivariate correlated Monte Carlo simulations** to estimate:
+Uses multivariate correlated Monte Carlo simulations to estimate:
 
 - terminal wealth distributions  
 - drawdown probabilities  
@@ -139,7 +139,7 @@ Uses **multivariate correlated Monte Carlo simulations** to estimate:
 
 ## Portfolio Diagnostics
 
-The engine generates a **decision dashboard** including:
+The engine generates a decision dashboard including:
 
 - Current Portfolio Performance  
 - Optimized Portfolio  
@@ -153,7 +153,7 @@ The engine generates a **decision dashboard** including:
 
 ## Efficient Frontier
 
-Shows the optimal tradeoff between **expected return and volatility**.
+Shows the optimal tradeoff between expected return and volatility.
 
 Key points plotted:
 
@@ -166,7 +166,7 @@ Key points plotted:
 
 ## Rolling Market Environment
 
-Uses a **rolling 5-year window** to show:
+Uses a rolling 5-year window to show:
 
 - changing return regimes  
 - volatility clustering  
@@ -313,11 +313,10 @@ config/research.py
 
 ---
 
-# Model Purpose
 
-This project is designed as a **portfolio research framework** that can be reused whenever assets are rotated or portfolio assumptions change.
+This project is designed as a portfolio research framework that can be reused whenever assets are rotated or portfolio assumptions change.
 
-The goal is to provide a **repeatable and transparent method for long-term portfolio construction and evaluation**.
+The goal is to provide a repeatable and transparent method for long-term portfolio construction and evaluation.
 
 ---
 
