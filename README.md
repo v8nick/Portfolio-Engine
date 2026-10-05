@@ -1,7 +1,7 @@
 # Portfolio Engine
 
 A local portfolio-analysis app with a browser dashboard for market intelligence,
-macro regimes, portfolio construction, risk, robustness and rebalance review.
+macro indicators, portfolio construction, risk, robustness and rebalance review.
 It runs on your computer and does not connect to a broker or execute trades.
 
 ## Download and launch — no Python experience needed
@@ -85,16 +85,46 @@ already on your PATH, the launcher can reuse it.
 
 The app opens without downloading market data or running portfolio analysis.
 
+To import a portfolio, expand **Import portfolio CSV** above the sidebar table,
+choose a `.csv` file, select **Add / update tickers** or **Replace table**, and
+click **Import CSV**. A `Ticker` (or `Symbol`) column is required; a single-column
+list without a header also works. Download the basic CSV template for ticker,
+current weight and target weight, or the advanced template for all policy columns.
+`Target %` and `Strategic %` mean the same thing. A simple file looks like:
+
+```csv
+Ticker,Current %
+SPY,60
+IEF,40
+```
+
+Weights use percentage points (`25` or `25%` means 25%; `0.25` means 0.25%).
+Add/update preserves other tickers and settings omitted from the CSV. Replace
+keeps only the imported tickers, preserving their existing settings where columns
+are omitted. New tickers begin at 0% current/strategic weight with satellite roles;
+review weights, roles, groups and limits before analysis. Set both weight totals
+to 100%; imports do not normalize weights or run the analysis automatically.
+Duplicate tickers, unsupported columns and invalid percentages are rejected
+without changing the table. Broker exports with share counts or dollar values
+must be converted to this percentage format first.
+
 1. In the sidebar, enter your **portfolio value** and edit the portfolio table.
    All weights in the editor are percentages: enter `25` for 25%.
-2. Set your **current weights** and **strategic targets**. Each column must total
+2. The basic editor shows only **Ticker**, **Current %** and **Target %**.
+   Set your current weights and strategic targets. Each weight column must total
    100%. Strategic policy represents your intended long-term allocation and is
    separate from what you currently hold.
-3. Set tactical **Low / High**, hard **Minimum / Maximum**, optional **Fixed**
+3. Enable **Show advanced allocation settings** if you want to edit tactical
+   **Low / High**, hard **Minimum / Maximum**, optional **Fixed**
    weights, asset groups and core/satellite roles. Scroll the table horizontally
    or use its fullscreen button to reach all columns. Add/delete rows as needed.
    Leave Fixed blank to allow a weight to move; a fixed weight must match its
    strategic target. Known individual stocks must be satellites.
+   Existing policy settings stay in place when hidden; a target outside those
+   limits requires adjusting them in the advanced view. New manually added rows
+   receive a target ±5 percentage-point band (clipped to 0–100%) and 0–100% hard
+   limits. Known tickers retain their configured classifications; unknown tickers
+   start as satellites and should have their roles and groups reviewed.
 4. Review satellite limits and the settings expander. The default strategy is
    illustrative; customize it before relying on any recommendation.
 5. Click **Run Analysis** and wait for completion. For a quicker initial check,
@@ -104,9 +134,9 @@ The app opens without downloading market data or running portfolio analysis.
 
 | Page | What it shows |
 | --- | --- |
-| Executive overview | Regime, allocation comparison, risk metrics and actions |
+| Executive overview | Underlying growth and inflation/rate-pressure metrics, allocation comparison, risk metrics and actions |
 | Market intelligence | Treasury yields, curve, cross-asset signals and backend interpretations |
-| Regime analysis | Scores, heuristic probabilities, quadrant and historical conditional outcomes |
+| Macro indicators | Actual model input changes, score construction, data coverage and historical returns by market pattern |
 | Portfolio construction | Strategic, minimum variance, BL max Sharpe, risk parity, CVaR and recommended allocations |
 | Risk | Tail risk, concentration, asset risk contributions and configured group exposures |
 | Robustness | BL max-Sharpe bootstrap weight stability |
@@ -218,7 +248,8 @@ The UI continues using configured manual BL opinions and cost/tax assumptions.
 
 ## Interpretation and limitations
 
-- Regimes are market-proxy states, not measured GDP/inflation classifications.
+- The dashboard shows underlying market metrics rather than assigning a current economic regime or displaying regime confidence/probabilities. Composite scores are standardized market proxies, not GDP growth or CPI inflation.
+- The backend still uses heuristic historical market-pattern weights for portfolio return adjustments. The downloadable JSON and command-line regime report retain those model diagnostics; this presentation change does not alter allocation calculations.
   Probabilities and confidence are heuristic and are not calibrated certainty.
 - Conditional outcomes describe history, not forecasts. Expected returns use the
   backend's annual arithmetic convention. Yield levels are percent per year;

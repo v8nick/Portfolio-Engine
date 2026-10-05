@@ -2,14 +2,17 @@
 from __future__ import annotations
 
 import math
+import csv
+import io
+import re
 import pandas as pd
 from config import live
 from portfolio_decision import resolve_allocation_policy
 
 REASONS = {
-    'positive_regime_return_delta': 'Current regime modestly favors this exposure.',
-    'negative_regime_return_delta': 'Current regime modestly disfavors this exposure.',
-    'no_regime_return_delta': 'No regime return adjustment is available.',
+    'positive_regime_return_delta': 'Historical market-pattern adjustment favors this exposure.',
+    'negative_regime_return_delta': 'Historical market-pattern adjustment disfavors this exposure.',
+    'no_regime_return_delta': 'No historical market-pattern adjustment is available.',
     'optimizer_consensus_positive': 'Portfolio methods favor a higher weight.',
     'optimizer_consensus_negative': 'Portfolio methods favor a lower weight.',
     'optimizer_disagreement': 'Portfolio methods disagree materially on this weight.',
@@ -48,6 +51,44 @@ def number(value, kind='number', signed=False):
     return format(value, f'{sign}.2f')
 
 
+# These names match the engine's saved input features; no scores are recomputed here.
+MACRO_INPUTS = (
+    ('Growth', 'growth_iwm_spy', 'Small caps − large caps (IWM − SPY)', 'percent', 'Higher supports the growth proxy'),
+    ('Growth', 'growth_rsp_spy', 'Equal weight − cap weight (RSP − SPY)', 'percent', 'Higher supports the growth proxy'),
+    ('Growth', 'growth_xly_xlp', 'Discretionary − staples (XLY − XLP)', 'percent', 'Higher supports the growth proxy'),
+    ('Growth', 'growth_hyg_lqd', 'High yield − investment grade (HYG − LQD)', 'percent', 'Higher supports the growth proxy'),
+    ('Growth', 'growth_spy', 'US equity return (SPY)', 'percent', 'Higher supports the growth proxy'),
+    ('Inflation / rate pressure', 'inflation_10y_change_bp', '10-year Treasury yield change', 'bp', 'Higher raises the pressure proxy'),
+    ('Inflation / rate pressure', 'inflation_tip_ief', 'Inflation protected − Treasuries (TIP − IEF)', 'percent', 'Higher raises the pressure proxy'),
+    ('Inflation / rate pressure', 'inflation_dbc', 'Commodity return (DBC)', 'percent', 'Higher raises the pressure proxy'),
+    ('Inflation / rate pressure', 'inflation_gld', 'Gold return (GLD)', 'percent', 'Higher raises the pressure proxy; half weight'),
+    ('Financial conditions', 'conditions_2y_change_bp', '2-year Treasury yield change', 'bp', 'Higher supports the tightening proxy'),
+    ('Financial conditions', 'conditions_dxy', 'Dollar index change (DXY)', 'percent', 'Higher supports the tightening proxy'),
+    ('Financial conditions', 'conditions_hyg', 'High-yield bond return (HYG)', 'percent', 'Lower supports the tightening proxy'),
+    ('Financial conditions', 'conditions_vix', 'VIX change', 'percent', 'Higher supports the tightening proxy'),
+    ('Stress', 'stress_vix_zscore', 'VIX standardized level', 'number', 'Higher supports the stress proxy'),
+    ('Stress', 'stress_spy_realized_vol_21d', 'SPY realized volatility (21 sessions, annualized)', 'percent', 'Higher supports the stress proxy'),
+    ('Stress', 'stress_credit_weakness', 'Credit weakness (LQD − HYG)', 'percent', 'Higher supports the stress proxy'),
+    ('Stress', 'stress_breadth_weakness', 'Breadth weakness (SPY − RSP)', 'percent', 'Higher supports the stress proxy'),
+)
+
+
+def macro_input_table(regime, groups=None):
+    """Format the actual saved raw features, retaining missing values as N/A."""
+    features = regime.get('features', {})
+    rows = []
+    for group, key, label, kind, meaning in MACRO_INPUTS:
+        if groups is not None and group not in groups:
+            continue
+        single = key in ('stress_vix_zscore', 'stress_spy_realized_vol_21d')
+        rows.append({'Category': group, 'Metric': label,
+                     '21 sessions (~1 month)': '—' if single else number(features.get(f'{key}_21D'), kind, signed=True),
+                     '63 sessions (~3 months)': '—' if single else number(features.get(f'{key}_63D'), kind, signed=True),
+                     'Latest level': number(features.get(key), kind) if single else '—',
+                     'Model direction': meaning})
+    return pd.DataFrame(rows)
+
+
 def initial_editor():
     rows = []
     for ticker in dict.fromkeys([*live.STRATEGIC_ALLOCATION, *live.CURRENT_WEIGHTS]):
@@ -63,6 +104,107 @@ def initial_editor():
                      'Fixed %': None if item.get('fixed_weight') is None else item['fixed_weight'] * 100,
                      'Role': item['role'], 'Group': item['group']})
     return pd.DataFrame(rows)
+
+
+def complete_editor_rows(frame):
+    """Supply optional policy fields for new editor rows; retain existing rules."""
+    result = frame.copy(deep=True)
+    catalog = initial_editor().set_index('Ticker')
+    for index, row in result.iterrows():
+        ticker = str(row.get('Ticker', '')).strip().upper()
+        target = row.get('Strategic %')
+        target = float(target) if pd.notna(target) else 0.
+        defaults = {'Low %': max(0., target - 5.), 'High %': min(100., target + 5.),
+                    'Minimum %': 0., 'Maximum %': 100., 'Role': 'satellite', 'Group': 'satellite'}
+        if ticker in catalog.index:
+            defaults.update(catalog.loc[ticker, ['Role', 'Group']].to_dict())
+        for name, default in defaults.items():
+            if pd.isna(row.get(name)) or (name in ('Role', 'Group') and not str(row.get(name, '')).strip()):
+                result.loc[index, name] = default
+    return result
+
+
+def import_portfolio_csv(content, existing, replace=False):
+    """Import tickers/percentage columns atomically without guessing allocations."""
+    try:
+        text = content.decode('utf-8-sig')
+        rows = [row for row in csv.reader(io.StringIO(text), strict=True) if any(cell.strip() for cell in row)]
+    except (UnicodeDecodeError, csv.Error) as exc:
+        raise ValueError('Use a UTF-8, comma-separated CSV file.') from exc
+    if not rows:
+        raise ValueError('The CSV is empty.')
+    columns = list(initial_editor().columns)
+    normalize = lambda name: re.sub(r'[^a-z0-9]', '', name.strip().lower())
+    aliases = {normalize(name): name for name in columns}
+    aliases.update(symbol='Ticker', tickers='Ticker', current='Current %', weight='Current %',
+                   currentweight='Current %', strategic='Strategic %', target='Strategic %',
+                   strategicweight='Strategic %')
+    header = [normalize(cell) for cell in rows[0]]
+    if any(aliases.get(cell) == 'Ticker' for cell in header):
+        unknown = [cell for cell in rows[0] if normalize(cell) not in aliases]
+        if unknown:
+            raise ValueError('Unsupported CSV columns: ' + ', '.join(unknown) + '. Use the downloadable template.')
+        names = [aliases[cell] for cell in header]
+        if len(names) != len(set(names)):
+            raise ValueError('The CSV contains duplicate columns.')
+        rows = rows[1:]
+    else:
+        if any(len(row) != 1 for row in rows):
+            raise ValueError('Include a Ticker or Symbol header for files with allocation columns.')
+        names = ['Ticker']
+    if not rows:
+        raise ValueError('The CSV contains no tickers.')
+    if len(rows) > 1000:
+        raise ValueError('Import at most 1,000 tickers at a time.')
+    base = existing.copy(deep=True).reset_index(drop=True)
+    records = base.to_dict('records')
+    lookup = {str(row['Ticker']).strip().upper(): row for row in records if pd.notna(row.get('Ticker'))}
+    imported, seen = [], set()
+    for index, values in enumerate(rows, 1):
+        if len(values) != len(names):
+            raise ValueError(f'CSV row {index}: column count does not match the header.')
+        supplied = dict(zip(names, (cell.strip() for cell in values)))
+        ticker = supplied['Ticker'].upper()
+        if not re.fullmatch(r'[A-Z0-9^][A-Z0-9.^=\-]{0,24}', ticker):
+            raise ValueError(f'CSV row {index}: enter a valid ticker symbol.')
+        if ticker in seen:
+            raise ValueError(f'{ticker}: duplicate ticker in CSV.')
+        seen.add(ticker)
+        row = dict(lookup.get(ticker, {'Ticker': ticker, 'Current %': 0., 'Strategic %': 0.,
+            'Low %': 0., 'High %': 100., 'Minimum %': 0., 'Maximum %': 100.,
+            'Fixed %': None, 'Role': 'satellite', 'Group': 'satellite'}))
+        row['Ticker'] = ticker
+        for name, value in supplied.items():
+            if name == 'Ticker':
+                continue
+            if name == 'Fixed %' and not value:
+                row[name] = None
+            elif not value:
+                continue  # An omitted value preserves an existing setting.
+            elif name == 'Role':
+                if value.lower() not in ('core', 'satellite'):
+                    raise ValueError(f'{ticker}: Role must be core or satellite.')
+                row[name] = value.lower()
+            elif name == 'Group':
+                row[name] = value
+            else:
+                try:
+                    parsed = float(value.removesuffix('%').strip())
+                except ValueError as exc:
+                    raise ValueError(f'{ticker}: {name} must be a percentage from 0 to 100.') from exc
+                if not math.isfinite(parsed) or not 0 <= parsed <= 100:
+                    raise ValueError(f'{ticker}: {name} must be a finite percentage from 0 to 100.')
+                row[name] = parsed
+        imported.append(row)
+    if replace:
+        records = imported
+    else:
+        for row in imported:
+            if row['Ticker'] in lookup:
+                lookup[row['Ticker']].update(row)
+            else:
+                records.append(row)
+    return pd.DataFrame(records, columns=columns)
 
 
 def validate_editor(frame, satellite_cap, individual_cap):
