@@ -15,11 +15,19 @@ def simulate_portfolio_paths(
     trading_days: int = 252,
     initial_value: float = 1.0,
     seed: int = 42,
+    method: str = "gaussian",
 ) -> pd.DataFrame:
     """
     Simulate Monte Carlo portfolio value paths using multivariate normal daily returns.
+    IID Gaussian simple returns with constant moments and constant weights.
+    Ignores tails, regime shifts, taxes and costs; normal draws can be below -100%.
+    The method parameter reserves the interface for future simulation models.
     Returns a DataFrame where each column is one simulated path.
     """
+    if method != "gaussian":
+        raise ValueError("Only the gaussian baseline is currently implemented.")
+    if years <= 0 or n_sims <= 0 or trading_days <= 0 or initial_value <= 0:
+        raise ValueError("Simulation horizon, count, frequency and initial value must be positive.")
     rng = np.random.default_rng(seed)
     n_assets = len(weights)
     n_steps = years * trading_days
@@ -38,7 +46,9 @@ def simulate_portfolio_paths(
 
     columns = [f"sim_{i+1}" for i in range(n_sims)]
     index = pd.RangeIndex(start=1, stop=n_steps + 1, step=1, name="step")
-    return pd.DataFrame(portfolio_values, index=index, columns=columns)
+    paths = pd.DataFrame(portfolio_values, index=index, columns=columns)
+    paths.attrs.update(initial_value=initial_value, method=method, assumptions="IID Gaussian simple returns; constant moments/weights; no costs or taxes")
+    return paths
 
 
 def terminal_value_stats(paths: pd.DataFrame) -> dict:
@@ -46,6 +56,7 @@ def terminal_value_stats(paths: pd.DataFrame) -> dict:
     Summary statistics for ending portfolio values.
     """
     terminal = paths.iloc[-1]
+    initial = paths.attrs.get("initial_value", 1.0)
 
     return {
         "mean_terminal_value": float(terminal.mean()),
@@ -54,17 +65,17 @@ def terminal_value_stats(paths: pd.DataFrame) -> dict:
         "p25_terminal_value": float(terminal.quantile(0.25)),
         "p75_terminal_value": float(terminal.quantile(0.75)),
         "p95_terminal_value": float(terminal.quantile(0.95)),
-        "prob_loss": float((terminal < 1.0).mean()),
-        "prob_double": float((terminal >= 2.0).mean()),
-        "prob_5x": float((terminal >= 5.0).mean()),
+        "prob_loss": float((terminal < initial).mean()),
+        "prob_double": float((terminal >= 2 * initial).mean()),
+        "prob_5x": float((terminal >= 5 * initial).mean()),
     }
 
 
-def path_max_drawdown(path: pd.Series) -> float:
+def path_max_drawdown(path: pd.Series, initial_value: float = 1.0) -> float:
     """
     Max drawdown for one simulated portfolio path.
     """
-    peak = path.cummax()
+    peak = path.cummax().clip(lower=initial_value)
     drawdown = path / peak - 1.0
     return float(drawdown.min())
 
@@ -73,7 +84,7 @@ def drawdown_stats(paths: pd.DataFrame) -> dict:
     """
     Summary stats for max drawdowns across all simulations.
     """
-    drawdowns = paths.apply(path_max_drawdown, axis=0)
+    drawdowns = paths.apply(path_max_drawdown, axis=0, initial_value=paths.attrs.get("initial_value", 1.0))
 
     return {
         "mean_max_drawdown": float(drawdowns.mean()),

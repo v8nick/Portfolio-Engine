@@ -4,11 +4,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from black_litterman import black_litterman_posterior
+from black_litterman import black_litterman_posterior, resolve_strategic_prior_weights
 from config.research import (
     BENCHMARK,
     BL_ABSOLUTE_VIEWS,
-    BL_MARKET_WEIGHTS,
+    BL_STRATEGIC_PRIOR_WEIGHTS,
     BL_RELATIVE_VIEWS,
     END_DATE,
     FIXED_WEIGHTS,
@@ -38,7 +38,6 @@ from config.shared import (
     DEFAULT_UNREALIZED_GAIN_RATE,
     LONG_TERM_FRACTION,
     LONG_TERM_TAX_RATE,
-    RISK_FREE_RATE,
     SHORT_TERM_TAX_RATE,
     SLIPPAGE_BPS,
     TRADING_DAYS,
@@ -47,7 +46,7 @@ from config.shared import (
     USE_COV_SHRINKAGE,
 )
 from dashboard import monte_carlo_risk_report, risk_contribution
-from data import compute_returns, download_prices
+from data import compute_returns, download_prices, download_treasury_yields, resolve_risk_free_rate
 from factors import factor_summary_table, fama_french_regression
 from frontier import efficient_frontier
 from implementation import apply_implementation_layer, net_expected_return_after_all_costs
@@ -76,19 +75,18 @@ def print_weights(title: str, tickers: list[str], weights: np.ndarray) -> None:
         print(f"{ticker:>5}: {weight:6.2%}")
 
 
-def maybe_print_relative_view_note(relative_views: list[tuple[str, str, float, float]]) -> None:
-    if relative_views:
-        print("\nNote: BL_RELATIVE_VIEWS is configured but not yet applied by black_litterman.py.")
-
-
 def main() -> None:
     all_tickers = list(dict.fromkeys(TICKERS + [BENCHMARK]))
 
     prices = download_prices(all_tickers, START_DATE, END_DATE)
     returns = compute_returns(prices)
+    treasury_yields = download_treasury_yields(prices.index.min().date().isoformat(), prices.index.max().date().isoformat())
+    rf_info = resolve_risk_free_rate(as_of=prices.index.max(), yields=treasury_yields)
+    rf = rf_info["rate"]
+    print(f"\nRisk-free rate: {rf:.2%} ({rf_info['source']}; observation {rf_info['as_of']})")
 
-    asset_returns = returns[TICKERS]
-    benchmark_returns = returns[BENCHMARK]
+    asset_returns = returns[TICKERS].dropna()
+    benchmark_returns = returns[BENCHMARK].dropna()
 
     hist_mu, cov = annualize_mean_cov(
         asset_returns,
@@ -102,10 +100,8 @@ def main() -> None:
     else:
         print("\nUsing sample covariance")
 
-    maybe_print_relative_view_note(BL_RELATIVE_VIEWS)
-
     if USE_BLACK_LITTERMAN:
-        market_weights = weights_dict_to_array(BL_MARKET_WEIGHTS, TICKERS)
+        market_weights = resolve_strategic_prior_weights(TICKERS, BL_STRATEGIC_PRIOR_WEIGHTS)
         mu, pi = black_litterman_posterior(
             cov=cov,
             market_weights=market_weights,
@@ -113,6 +109,7 @@ def main() -> None:
             tau=BL_TAU,
             absolute_views=BL_ABSOLUTE_VIEWS,
             relative_views=BL_RELATIVE_VIEWS,
+            risk_free_rate=rf,
         )
 
         print("\nImplied Equilibrium Returns (Pi)")
@@ -144,11 +141,11 @@ def main() -> None:
         turnover_penalty_lambda=TURNOVER_PENALTY_LAMBDA,
     )
 
-    starting_stats = portfolio_stats(starting_weights, mu, cov, RISK_FREE_RATE)
+    starting_stats = portfolio_stats(starting_weights, mu, cov, rf)
     max_sharpe_weights = optimize_max_sharpe_constrained(
         mu=mu_for_optimization,
         cov=cov,
-        rf=RISK_FREE_RATE,
+        rf=rf,
         tickers=TICKERS,
         bounds=WEIGHT_BOUNDS,
         fixed_weights=FIXED_WEIGHTS,
@@ -156,8 +153,8 @@ def main() -> None:
     )
     min_vol_weights = optimize_min_vol(mu, cov, bounds=WEIGHT_BOUNDS)
 
-    max_sharpe_stats = portfolio_stats(max_sharpe_weights, mu, cov, RISK_FREE_RATE)
-    min_vol_stats = portfolio_stats(min_vol_weights, mu, cov, RISK_FREE_RATE)
+    max_sharpe_stats = portfolio_stats(max_sharpe_weights, mu, cov, rf)
+    min_vol_stats = portfolio_stats(min_vol_weights, mu, cov, rf)
     rolling = rolling_statistics(asset_returns, 252 * 5, TRADING_DAYS)
 
     print_weights("Starting Portfolio Weights", TICKERS, starting_weights)
@@ -185,6 +182,7 @@ def main() -> None:
         print("\n" + "=" * 60)
         print("IMPLEMENTATION-AWARE RESEARCH COST ANALYSIS")
         print("=" * 60)
+        print("Tax drag is an approximate estimate using assumed gains and holding periods; no tax lots.")
         for key, value in implementation_report.items():
             print(f"{key}: {value:.4f}")
 
@@ -201,7 +199,7 @@ def main() -> None:
     min_vol_series = build_portfolio_return_series(asset_returns, min_vol_weights, TICKERS)
 
     print("\nDetailed Summary: Starting Portfolio")
-    print(summary_table(starting_series, benchmark_returns, RISK_FREE_RATE, TRADING_DAYS))
+    print(summary_table(starting_series, benchmark_returns, rf, TRADING_DAYS))
 
     print("\n" + "=" * 60)
     print("FAMA-FRENCH 5 FACTOR REGRESSION")
@@ -225,17 +223,19 @@ def main() -> None:
             asset_returns=asset_returns,
             tickers=TICKERS,
             trading_days=TRADING_DAYS,
-            risk_free_rate=RISK_FREE_RATE,
+            risk_free_rate=rf,
             weight_bounds=WEIGHT_BOUNDS,
             fixed_weights=FIXED_WEIGHTS,
             min_weights=MIN_WEIGHTS,
             window_days=WF_WINDOW_DAYS,
             rebalance_freq=WF_REBALANCE_FREQ,
             use_black_litterman=USE_BLACK_LITTERMAN,
-            bl_market_weights=BL_MARKET_WEIGHTS,
+            bl_market_weights=BL_STRATEGIC_PRIOR_WEIGHTS,
             bl_risk_aversion=BL_RISK_AVERSION,
             bl_tau=BL_TAU,
             bl_absolute_views=BL_ABSOLUTE_VIEWS,
+            bl_relative_views=BL_RELATIVE_VIEWS,
+            risk_free_yields=treasury_yields,
             use_cov_shrinkage=USE_COV_SHRINKAGE,
             cov_shrinkage_method=COV_SHRINKAGE_METHOD,
             implementation_layer=IMPLEMENTATION_LAYER,
@@ -248,7 +248,7 @@ def main() -> None:
             summary_table(
                 wf_series,
                 benchmark_returns.loc[wf_series.index],
-                RISK_FREE_RATE,
+                rf,
                 TRADING_DAYS,
             )
         )
@@ -318,7 +318,8 @@ def main() -> None:
     print(risk_df.round(4).to_string(index=False))
 
     print("\n" + "=" * 60)
-    print("MONTE CARLO RISK")
+    print("MONTE CARLO RISK — IID GAUSSIAN BASELINE")
+    print("Constant mean/covariance and weights; excludes fat tails, regime shifts, costs and taxes.")
     print("=" * 60)
     mc_report = monte_carlo_risk_report(
         terminal_stats=mc_terminal,
@@ -356,10 +357,10 @@ def main() -> None:
     benchmark_vol = benchmark_returns.std() * (TRADING_DAYS ** 0.5)
 
     max_sharpe_slope = (
-        (max_sharpe_stats["expected_return"] - RISK_FREE_RATE) / max_sharpe_stats["volatility"]
+        (max_sharpe_stats["expected_return"] - rf) / max_sharpe_stats["volatility"]
     )
     cml_x = pd.Series([0.0, max(frontier_vol.max(), benchmark_vol) * 1.1])
-    cml_y = RISK_FREE_RATE + max_sharpe_slope * cml_x
+    cml_y = rf + max_sharpe_slope * cml_x
 
     plt.figure(figsize=(10, 6))
     for column in growth_df.columns:

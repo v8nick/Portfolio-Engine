@@ -22,7 +22,7 @@ def cumulative_growth(return_series: pd.Series, initial: float = 1.0) -> pd.Seri
 
 def max_drawdown(return_series: pd.Series) -> float:
     wealth = cumulative_growth(return_series, 1.0)
-    peak = wealth.cummax()
+    peak = wealth.cummax().clip(lower=1.0)
     drawdown = wealth / peak - 1.0
     return float(drawdown.min())
 
@@ -129,3 +129,35 @@ def export_quantstats_report(
             output=str(output),
             title="Portfolio QuantStats Report",
         )
+
+
+def empirical_var_cvar(returns: pd.Series, confidence: float = .95) -> dict:
+    """Empirical daily losses, with exact fractional tail mass for expected shortfall.
+
+    Positive=loss, negative=gain; no Gaussian assumption. VaR is the empirical
+    inverse-CDF order statistic. CVaR averages the worst (1-confidence) fraction,
+    including a fractional boundary observation when necessary.
+    """
+    if not np.isfinite(confidence) or not 0 < confidence < 1:
+        raise ValueError('Tail confidence must be strictly between zero and one.')
+    clean = returns.replace([np.inf, -np.inf], np.nan).dropna()
+    if clean.empty:
+        return {'var': np.nan, 'cvar': np.nan, 'confidence': confidence, 'frequency': 'daily', 'unit': 'loss fraction'}
+    losses = np.sort(-clean.to_numpy(dtype=float))
+    mass = len(losses) * (1 - confidence)
+    whole = int(np.floor(mass))
+    fraction = mass - whole
+    ordered = losses[::-1]
+    cvar = (ordered[:whole].sum() + (fraction * ordered[whole] if fraction > 0 else 0)) / mass
+    return {'var': float(losses[int(np.ceil(confidence * len(losses))) - 1]),
+            'cvar': float(cvar), 'confidence': confidence, 'frequency': 'daily', 'unit': 'loss fraction'}
+
+
+def historical_tail_risk(returns: pd.Series, confidence: float = .95,
+                         trading_days: int = 252) -> dict:
+    clean = returns.dropna()
+    return {'max_drawdown': max_drawdown(clean) if len(clean) else np.nan,
+            'annualized_volatility': annualized_volatility(clean, trading_days),
+            'downside_deviation': float(np.sqrt(np.mean(np.minimum(clean, 0) ** 2)) * np.sqrt(trading_days)) if len(clean) else np.nan,
+            'downside_target': 0., 'observations': len(clean),
+            **empirical_var_cvar(clean, confidence)}
