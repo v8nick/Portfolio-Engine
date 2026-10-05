@@ -118,13 +118,17 @@ must be converted to this percentage format first.
    **Low / High**, hard **Minimum / Maximum**, optional **Fixed**
    weights, asset groups and core/satellite roles. Scroll the table horizontally
    or use its fullscreen button to reach all columns. Add/delete rows as needed.
-   Leave Fixed blank to allow a weight to move; a fixed weight must match its
-   strategic target. Known individual stocks must be satellites.
-   Existing policy settings stay in place when hidden; a target outside those
-   limits requires adjusting them in the advanced view. New manually added rows
-   receive a target ±5 percentage-point band (clipped to 0–100%) and 0–100% hard
-   limits. Known tickers retain their configured classifications; unknown tickers
-   start as satellites and should have their roles and groups reviewed.
+   Leave Fixed blank to allow a weight to move; a fixed weight is used only when
+   it matches the target. Known individual stocks are classified as satellites.
+   Advanced fields are optional. In the basic view, bands are generated at target
+   ±5 percentage points (clipped to 0–100%); hidden hard limits and fixed weights
+   are ignored. In the advanced view, supplied bands/limits expand to include the
+   entered target, and a conflicting fixed weight is ignored. Optional concentration
+   limits also expand when targets exceed them. The app displays adjustments and
+   records them with the saved analysis. Main-editor targets always take priority;
+   percentages must still be valid and current/target totals must each be 100%.
+   Known tickers receive configured classifications when omitted; unknown tickers
+   start as satellites. Classifications can be edited in the advanced view.
 4. Review satellite limits and the settings expander. The default strategy is
    illustrative; customize it before relying on any recommendation.
 5. Click **Run Analysis** and wait for completion. For a quicker initial check,
@@ -158,7 +162,7 @@ to save the result. It is an export, not a configuration-import feature.
 | Setup/download error | Check your connection, available disk space and folder permissions. Retry the same launcher; cached downloads can be reused. |
 | Browser does not open | Open `http://localhost:8501` manually after setup finishes. |
 | Port 8501 is already in use | An earlier copy may still be running. Stop it with Control+C, then relaunch. |
-| Invalid weights or policy | Read the UI validation messages. Both weight totals must equal 100%, and strategic targets must satisfy the configured limits. |
+| Invalid weights or policy | Both current/target totals must equal 100%, percentages must be finite and between 0 and 100, and tickers must be unique. Optional limits adjust to accommodate targets. |
 | Missing ticker or insufficient history | Check the Yahoo ticker spelling and history start date. Required portfolio assets are not silently dropped. New listings may lack enough common history. |
 | Treasury/Yahoo data unavailable | Review the warnings, refresh data and retry later. Optional market signals may be missing; missing required asset data can prevent a new recommendation. |
 | Optimizer or bootstrap unavailable | Other available results still render. Read the warnings and confidence assessment. |

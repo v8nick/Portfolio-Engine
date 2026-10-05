@@ -15,7 +15,7 @@ import json
 from uuid import uuid4
 import streamlit as st
 from config import live, shared
-from ui.helpers import initial_editor, validate_editor, number, import_portfolio_csv, complete_editor_rows
+from ui.helpers import initial_editor, validate_editor, number, import_portfolio_csv, complete_editor_rows, prepare_editor_policy
 from ui.services import market_data, snapshot, run_analysis
 from ui.views import PAGES, render
 
@@ -95,17 +95,20 @@ with st.sidebar:
         numeric.update({name: None for name in ('Low %', 'High %', 'Minimum %', 'Maximum %', 'Fixed %', 'Role', 'Group')})
     else:
         st.caption('Low / High: tactical allocation band. Minimum / Maximum: hard limits. Fixed: optional locked target. '
-                   'Role: core or satellite. Group: category used for risk summaries. These settings are preserved when hidden.')
+                   'Role: core or satellite. Group: category used for risk summaries. Optional rules are used in this view, '
+                   'but Target % takes priority if a band, limit or fixed weight conflicts.')
     edited = st.data_editor(st.session_state.editor_base, key='policy_editor', num_rows='dynamic',
         hide_index=True, width='stretch', column_config=numeric, height=360)
     edited = complete_editor_rows(edited)
     st.session_state['draft_portfolio'] = edited.copy(deep=True)
     st.caption(f"Current total: {edited['Current %'].sum():.2f}% · Target total: {edited['Strategic %'].sum():.2f}%")
     if not advanced:
-        st.caption('Existing bands and limits still apply. Enable advanced settings to change them or classify new tickers. '
-                   'New manual rows get a target ±5 percentage-point band and 0–100% hard limits; unknown tickers start as satellites.')
-    st.number_input('Max satellite allocation (%)', min_value=0., max_value=100., value=live.MAX_SATELLITE_ALLOCATION * 100, key='satellite_cap')
-    st.number_input('Max individual satellite (%)', min_value=0., max_value=100., value=live.MAX_INDIVIDUAL_SATELLITE_WEIGHT * 100, key='individual_cap')
+        st.caption('Targets take priority. Bands are generated at target ±5 percentage points (within 0–100%); '
+                   'hidden hard limits and fixed weights are ignored. Classifications are supplied automatically when omitted.')
+    with st.expander('Optional concentration limits'):
+        st.caption('These limits expand automatically if needed to accommodate your entered targets.')
+        st.number_input('Max satellite allocation (%)', min_value=0., max_value=100., value=live.MAX_SATELLITE_ALLOCATION * 100, key='satellite_cap')
+        st.number_input('Max individual satellite (%)', min_value=0., max_value=100., value=live.MAX_INDIVIDUAL_SATELLITE_WEIGHT * 100, key='individual_cap')
     with st.expander('Analysis settings', expanded=False):
         defaults = shared.DECISION_SETTINGS
         st.number_input('Rebalance threshold (%)', min_value=0., max_value=100., value=defaults['rebalance_threshold'] * 100, key='threshold')
@@ -121,12 +124,14 @@ with st.sidebar:
     st.caption('Default strategy is illustrative. Engine settings, manual views and tax assumptions remain those in configuration. No trades are executed.')
 
 state = st.session_state
-holdings, policy, errors = validate_editor(edited, state.satellite_cap / 100, state.individual_cap / 100)
+effective_editor, satellite_cap, individual_cap, policy_notes = prepare_editor_policy(
+    edited, advanced, state.satellite_cap / 100, state.individual_cap / 100)
+holdings, policy, errors = validate_editor(effective_editor, satellite_cap, individual_cap)
 if state.history_start >= state.as_of:
     errors.append('History start must precede the analysis date.')
 options = {'rebalance_threshold': state.threshold / 100, 'regime_bl_strength': state.overlay_strength,
            'robustness_repetitions': int(state.repetitions), 'tail_confidence': state.tail_confidence,
-           'max_satellite_allocation': state.satellite_cap / 100, 'max_individual_satellite_weight': state.individual_cap / 100}
+           'max_satellite_allocation': satellite_cap, 'max_individual_satellite_weight': individual_cap}
 config = {'holdings': holdings, 'policy': policy, 'options': options, 'portfolio_value': state.portfolio_value,
           'risk_free': state.rf_percent / 100 if state.rf_override else None,
           'start': state.history_start.isoformat(), 'as_of': state.as_of.isoformat()}
@@ -151,6 +156,7 @@ if run or refresh:
                     bundle['portfolio_value'] = config['portfolio_value']
                     bundle['config'] = copy.deepcopy(config)
                     bundle['completed_at'] = datetime.now(timezone.utc).isoformat(timespec='seconds')
+                    bundle['warnings'].extend(policy_notes)
                     # Commit state only on success; failed runs retain the previous analysis.
                     state.analysis = bundle
                     state.last_success = bundle['completed_at']
@@ -164,6 +170,10 @@ if run or refresh:
             state.analysis_error = (message, f'{type(exc).__name__}: {exc}')
 
 st.title(page)
+if policy_notes:
+    with st.expander('Allocation rules adjusted to your targets', expanded=False):
+        for note in policy_notes:
+            st.info(note)
 if state.analysis_error:
     st.error(state.analysis_error[0])
     with st.expander('Details'):
