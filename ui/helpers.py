@@ -124,6 +124,50 @@ def complete_editor_rows(frame):
     return result
 
 
+def prepare_editor_policy(frame, advanced=False, satellite_cap=.15, individual_cap=.05):
+    """Main targets take priority over optional policy settings at the UI boundary."""
+    result = complete_editor_rows(frame)
+    notes = []
+    catalog = initial_editor().set_index('Ticker')
+    for index, row in result.iterrows():
+        target = row.get('Strategic %')
+        if not isinstance(target, (int, float)) or not math.isfinite(target) or not 0 <= target <= 100:
+            continue  # Mandatory input validation reports this without guessing a target.
+        ticker = str(row.get('Ticker', '')).strip().upper()
+        defaults = {'Low %': max(0., target - 5.), 'High %': min(100., target + 5.),
+                    'Minimum %': 0., 'Maximum %': 100.}
+        for name, default in defaults.items():
+            value = row.get(name)
+            if not advanced or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 100:
+                result.loc[index, name] = default
+            else:
+                # Expanding even reversed bounds around the target produces a feasible interval.
+                result.loc[index, name] = min(value, target) if name in ('Low %', 'Minimum %') else max(value, target)
+            if advanced and result.loc[index, name] != value:
+                notes.append(f'{ticker}: {name} adjusted to accommodate Target %.')
+        fixed = row.get('Fixed %')
+        if not advanced or (pd.notna(fixed) and (not isinstance(fixed, (int, float)) or not math.isfinite(fixed)
+                                               or not math.isclose(fixed, target, abs_tol=1e-8, rel_tol=0))):
+            result.loc[index, 'Fixed %'] = None
+            if advanced and pd.notna(fixed):
+                notes.append(f'{ticker}: conflicting fixed weight ignored in favor of Target %.')
+        role = row.get('Role')
+        if ticker in live.INDIVIDUAL_STOCK_TICKERS:
+            role = 'satellite'
+        elif role not in ('core', 'satellite'):
+            role = catalog.loc[ticker, 'Role'] if ticker in catalog.index else 'satellite'
+        result.loc[index, 'Role'] = role
+    satellites = pd.to_numeric(result.loc[result.Role == 'satellite', 'Strategic %'], errors='coerce')
+    valid = satellites[satellites.between(0, 100)] / 100
+    effective_satellite = min(1., max(satellite_cap, math.fsum(valid)))
+    effective_individual = max(individual_cap, float(valid.max()) if len(valid) else 0.)
+    if effective_satellite > satellite_cap + 1e-8:
+        notes.append(f'Satellite limit increased to {effective_satellite:.1%} to accommodate targets.')
+    if effective_individual > individual_cap + 1e-8:
+        notes.append(f'Individual satellite limit increased to {effective_individual:.1%} to accommodate targets.')
+    return result, effective_satellite, effective_individual, notes
+
+
 def import_portfolio_csv(content, existing, replace=False):
     """Import tickers/percentage columns atomically without guessing allocations."""
     try:

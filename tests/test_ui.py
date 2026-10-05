@@ -10,7 +10,8 @@ import pandas as pd
 from streamlit.testing.v1 import AppTest
 
 from ui.helpers import (initial_editor, validate_editor, number, reason_text,
-                        allocation_table, metric_table, action_table, macro_input_table, import_portfolio_csv, complete_editor_rows)
+                        allocation_table, metric_table, action_table, macro_input_table, import_portfolio_csv,
+                        complete_editor_rows, prepare_editor_policy)
 from ui import services
 from ui.views import PAGES
 from config import shared
@@ -72,6 +73,38 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(completed.loc[1, 'Low %'], 0.)
         self.assertEqual(completed.loc[1, 'High %'], 5.)
         self.assertNotIn('Role', new.columns)
+
+    def test_main_targets_override_hidden_and_conflicting_advanced_limits(self):
+        frame = initial_editor().set_index('Ticker').loc[['SPY', 'IEF']].reset_index()
+        frame['Current %'] = [60., 40.]
+        frame['Strategic %'] = [60., 40.]
+        frame.loc[0, 'Fixed %'] = 35.
+        before = frame.copy(deep=True)
+        for advanced in (False, True):
+            effective, total_cap, individual_cap, notes = prepare_editor_policy(frame, advanced)
+            holdings, policy, errors = validate_editor(effective, total_cap, individual_cap)
+            self.assertEqual(errors, [], (advanced, errors))
+            self.assertEqual(holdings, {'SPY': .6, 'IEF': .4})
+            self.assertEqual(policy['SPY']['strategic_weight'], .6)
+            self.assertNotIn('fixed_weight', policy['SPY'])
+            self.assertLessEqual(policy['SPY']['tactical_low'], .6)
+            self.assertGreaterEqual(policy['SPY']['maximum_weight'], .6)
+            if advanced:
+                self.assertTrue(notes)
+        pd.testing.assert_frame_equal(frame, before)
+
+    def test_optional_fields_and_caps_accommodate_satellite_targets(self):
+        frame = pd.DataFrame([{'Ticker': 'MSFT', 'Current %': 60., 'Strategic %': 60.},
+                              {'Ticker': 'IEF', 'Current %': 40., 'Strategic %': 40.}])
+        effective, total_cap, individual_cap, notes = prepare_editor_policy(frame)
+        self.assertEqual(total_cap, .6)
+        self.assertEqual(individual_cap, .6)
+        self.assertTrue(notes)
+        self.assertEqual(effective.loc[0, 'Role'], 'satellite')
+        self.assertEqual(validate_editor(effective, total_cap, individual_cap)[2], [])
+        frame.loc[0, 'Strategic %'] = -1.
+        effective, total_cap, individual_cap, _ = prepare_editor_policy(frame)
+        self.assertTrue(validate_editor(effective, total_cap, individual_cap)[2])
 
     def test_csv_replace_and_percentage_units(self):
         imported = import_portfolio_csv(b'Symbol,Weight,Strategic %,Role,Group\nSPY,60%,60,core,stocks\nIEF,40,40,core,bonds\n',
@@ -315,6 +348,25 @@ class AppTests(unittest.TestCase):
             self.assertFalse(app.exception)
             self.assertEqual(engine.call_count, 1)
             self.assertEqual(app.session_state['analysis']['recommendation'], saved)
+
+    def test_real_engine_accepts_main_targets_above_old_satellite_limits(self):
+        app = self.app()
+        frame = initial_editor().set_index('Ticker').loc[['QQQ', 'IEF']].reset_index()
+        frame['Current %'] = [60., 40.]
+        frame['Strategic %'] = [60., 40.]
+        app.session_state['editor_base'] = frame
+        app.session_state['as_of'] = self.prices.index[-1].date()
+        app.session_state['repetitions'] = 3
+        with patch('ui.services.market_data', return_value=self.data), patch('ui.services.build_portfolio_recommendation', wraps=build_portfolio_recommendation) as engine:
+            app.run()
+            app.button(key='run_analysis').click().run()
+            self.assertFalse(app.exception)
+            self.assertFalse(app.error)
+            self.assertEqual(engine.call_count, 1)
+            saved = app.session_state['analysis']['recommendation']
+            self.assertEqual(saved['strategic_portfolio']['weights'], {'QQQ': .6, 'IEF': .4})
+            self.assertAlmostEqual(sum(saved['recommended_portfolio']['central_weights'].values()), 1.)
+            self.assertTrue(any('Satellite limit increased' in warning for warning in app.session_state['analysis']['warnings']))
 
     def test_sidebar_settings_persist_across_navigation(self):
         app = self.app().run()
