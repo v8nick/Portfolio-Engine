@@ -4,9 +4,9 @@ import numpy as np
 from mpt import (
     annualize_mean_cov,
     optimize_max_sharpe_constrained,
-    weights_dict_to_array,
 )
-from black_litterman import black_litterman_posterior
+from black_litterman import black_litterman_posterior, resolve_strategic_prior_weights
+from data import get_risk_free_rate
 from implementation import apply_implementation_layer
 
 
@@ -18,9 +18,8 @@ def get_rebalance_dates(index: pd.DatetimeIndex, freq: str = "M") -> pd.Datetime
     if freq.upper() not in {"M", "ME"}:
         raise ValueError("Only monthly rebalancing ('ME') is currently supported.")
 
-    s = pd.Series(index=index, data=1.0)
-    dates = s.resample("ME").last().index
-    dates = dates[dates.isin(index)]
+    s = pd.Series(index=index, data=index)
+    dates = pd.DatetimeIndex(s.resample("ME").last().dropna().values)
     return pd.DatetimeIndex(dates)
 
 
@@ -29,9 +28,10 @@ def portfolio_return_series_from_weight_history(
     weight_history: pd.DataFrame,
 ) -> pd.Series:
     """
-    Forward-fill rebalance weights across daily returns and compute realized portfolio returns.
+    Decision-date weights become effective next observation.
+    This is a constant-weight daily-rebalanced, gross-return baseline.
     """
-    aligned_weights = weight_history.reindex(asset_returns.index).ffill()
+    aligned_weights = weight_history.reindex(asset_returns.index).ffill().shift(1)
     aligned_weights = aligned_weights.dropna(how="all")
 
     aligned_returns = asset_returns.loc[aligned_weights.index]
@@ -60,6 +60,8 @@ def rolling_black_litterman_backtest(
     implementation_layer: bool = False,
     turnover_penalty_lambda: float = 0.0,
     starting_weights: np.ndarray | None = None,
+    bl_relative_views: list[tuple[str, str, float, float]] | None = None,
+    risk_free_yields: pd.DataFrame | None = None,
 ) -> tuple[pd.Series, pd.DataFrame, pd.DataFrame]:
     """
     Walk-forward out-of-sample backtest:
@@ -76,8 +78,11 @@ def rolling_black_litterman_backtest(
     diagnostics : pd.DataFrame
         Rebalance-date diagnostics
     """
-    if bl_market_weights is None:
-        raise ValueError("bl_market_weights must be provided for walk-forward BL backtest.")
+    if not asset_returns.index.is_unique or not asset_returns.index.is_monotonic_increasing:
+        raise ValueError("Returns must have a unique, increasing date index.")
+    if window_days < 2:
+        raise ValueError("window_days must be at least two.")
+    asset_returns = asset_returns[tickers].dropna()
 
     rebalance_dates = get_rebalance_dates(asset_returns.index, freq=rebalance_freq)
 
@@ -86,7 +91,7 @@ def rolling_black_litterman_backtest(
         loc = asset_returns.index.get_loc(dt)
         if isinstance(loc, slice):
             loc = loc.stop - 1
-        if loc >= window_days:
+        if window_days - 1 <= loc < len(asset_returns) - 1:
             eligible_dates.append(dt)
 
     eligible_dates = pd.DatetimeIndex(eligible_dates)
@@ -94,7 +99,7 @@ def rolling_black_litterman_backtest(
     weight_history = pd.DataFrame(index=eligible_dates, columns=tickers, dtype=float)
     diagnostics = []
 
-    market_weights = weights_dict_to_array(bl_market_weights, tickers)
+    market_weights = resolve_strategic_prior_weights(tickers, bl_market_weights) if use_black_litterman else None
 
     current_weights = (
         starting_weights.copy()
@@ -107,7 +112,9 @@ def rolling_black_litterman_backtest(
         if isinstance(end_loc, slice):
             end_loc = end_loc.stop - 1
 
-        window_returns = asset_returns.iloc[end_loc - window_days : end_loc + 1]
+        window_returns = asset_returns.iloc[end_loc - window_days + 1 : end_loc + 1]
+        rf = (get_risk_free_rate(as_of=dt, yields=risk_free_yields)
+              if risk_free_yields is not None else risk_free_rate)
 
         hist_mu, cov = annualize_mean_cov(
             window_returns,
@@ -123,6 +130,8 @@ def rolling_black_litterman_backtest(
                 risk_aversion=bl_risk_aversion,
                 tau=bl_tau,
                 absolute_views=bl_absolute_views,
+                relative_views=bl_relative_views,
+                risk_free_rate=rf,
             )
         else:
             mu = hist_mu
@@ -139,7 +148,7 @@ def rolling_black_litterman_backtest(
         target_weights = optimize_max_sharpe_constrained(
             mu=mu_for_opt,
             cov=cov,
-            rf=risk_free_rate,
+            rf=rf,
             tickers=tickers,
             bounds=weight_bounds,
             fixed_weights=fixed_weights,
@@ -150,12 +159,15 @@ def rolling_black_litterman_backtest(
 
         exp_ret = float(target_weights @ mu.values)
         vol = float(np.sqrt(target_weights @ cov.values @ target_weights))
-        sharpe = (exp_ret - risk_free_rate) / vol if vol > 0 else np.nan
+        sharpe = (exp_ret - rf) / vol if vol > 0 else np.nan
         turnover = float(np.sum(np.abs(target_weights - current_weights)))
 
         diagnostics.append(
             {
                 "rebalance_date": dt,
+                "risk_free_rate": rf,
+                "estimation_end": window_returns.index[-1],
+                "effective_date": asset_returns.index[end_loc + 1] if end_loc + 1 < len(asset_returns) else pd.NaT,
                 "expected_return": exp_ret,
                 "volatility": vol,
                 "sharpe": sharpe,
@@ -165,7 +177,7 @@ def rolling_black_litterman_backtest(
 
         current_weights = target_weights.copy()
 
-    diagnostics = pd.DataFrame(diagnostics).set_index("rebalance_date")
+    diagnostics = pd.DataFrame(diagnostics, columns=["rebalance_date", "risk_free_rate", "estimation_end", "effective_date", "expected_return", "volatility", "sharpe", "turnover"]).set_index("rebalance_date")
 
     oos_returns = portfolio_return_series_from_weight_history(asset_returns, weight_history)
 

@@ -8,7 +8,8 @@ def compute_turnover(
     target_weights: np.ndarray,
 ) -> float:
     """
-    One-way turnover approximation.
+    Two-sided traded notional: sum of absolute buys and sells.
+    Conventional one-way turnover is half this value for fully invested portfolios.
     """
     return float(np.sum(np.abs(target_weights - current_weights)))
 
@@ -53,7 +54,8 @@ def estimate_tax_drag(
     long_term_fraction: float = 0.5,
 ) -> float:
     """
-    Rough tax drag estimate from selling appreciated positions.
+    Approximate one-time tax estimate, without tax lots or loss offsets.
+    unrealized_gains_rates is gain as a fraction of current market value sold.
     """
     sells = np.maximum(current_weights - target_weights, 0.0)
 

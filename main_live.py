@@ -3,11 +3,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from black_litterman import black_litterman_posterior
+from black_litterman import black_litterman_posterior, resolve_strategic_prior_weights
 from config.live import (
     BENCHMARK,
     BL_ABSOLUTE_VIEWS,
-    BL_MARKET_WEIGHTS,
+    BL_STRATEGIC_PRIOR_WEIGHTS,
     BL_RELATIVE_VIEWS,
     CURRENT_WEIGHTS,
     FIXED_WEIGHTS,
@@ -28,7 +28,6 @@ from config.shared import (
     DEFAULT_UNREALIZED_GAIN_RATE,
     LONG_TERM_FRACTION,
     LONG_TERM_TAX_RATE,
-    RISK_FREE_RATE,
     SHORT_TERM_TAX_RATE,
     SLIPPAGE_BPS,
     TRADING_DAYS,
@@ -42,7 +41,7 @@ from dashboard import (
     risk_contribution,
     suggested_weight_changes,
 )
-from data import compute_returns, download_prices
+from data import compute_returns, download_prices, download_treasury_yields, resolve_risk_free_rate
 from implementation import (
     apply_implementation_layer,
     implementation_summary_table,
@@ -64,19 +63,18 @@ def print_weights(title: str, tickers: list[str], weights: np.ndarray) -> None:
         print(f"{ticker:>5}: {weight:6.2%}")
 
 
-def maybe_print_relative_view_note(relative_views: list[tuple[str, str, float, float]]) -> None:
-    if relative_views:
-        print("\nNote: BL_RELATIVE_VIEWS is configured but not yet applied by black_litterman.py.")
-
-
 def main() -> None:
     all_tickers = list(dict.fromkeys(TICKERS + [BENCHMARK]))
 
     prices = download_prices(all_tickers, LOOKBACK_START_DATE, LOOKBACK_END_DATE)
     returns = compute_returns(prices)
+    treasury_yields = download_treasury_yields(prices.index.min().date().isoformat(), prices.index.max().date().isoformat())
+    rf_info = resolve_risk_free_rate(as_of=prices.index.max(), yields=treasury_yields)
+    rf = rf_info["rate"]
+    print(f"\nRisk-free rate: {rf:.2%} ({rf_info['source']}; observation {rf_info['as_of']})")
 
-    asset_returns = returns[TICKERS]
-    benchmark_returns = returns[BENCHMARK]
+    asset_returns = returns[TICKERS].dropna()
+    benchmark_returns = returns[BENCHMARK].dropna()
 
     hist_mu, cov = annualize_mean_cov(
         asset_returns,
@@ -90,10 +88,8 @@ def main() -> None:
     else:
         print("\nUsing sample covariance")
 
-    maybe_print_relative_view_note(BL_RELATIVE_VIEWS)
-
     if USE_BLACK_LITTERMAN:
-        market_weights = weights_dict_to_array(BL_MARKET_WEIGHTS, TICKERS)
+        market_weights = resolve_strategic_prior_weights(TICKERS, BL_STRATEGIC_PRIOR_WEIGHTS)
         mu, pi = black_litterman_posterior(
             cov=cov,
             market_weights=market_weights,
@@ -101,6 +97,7 @@ def main() -> None:
             tau=BL_TAU,
             absolute_views=BL_ABSOLUTE_VIEWS,
             relative_views=BL_RELATIVE_VIEWS,
+            risk_free_rate=rf,
         )
 
         print("\nImplied Equilibrium Returns (Pi)")
@@ -123,7 +120,7 @@ def main() -> None:
     print(mu_compare.round(4))
 
     current_weights = weights_dict_to_array(CURRENT_WEIGHTS, TICKERS)
-    current_stats = portfolio_stats(current_weights, mu, cov, RISK_FREE_RATE)
+    current_stats = portfolio_stats(current_weights, mu, cov, rf)
 
     mu_for_optimization = apply_implementation_layer(
         mu=mu,
@@ -136,13 +133,13 @@ def main() -> None:
     target_weights = optimize_max_sharpe_constrained(
         mu=mu_for_optimization,
         cov=cov,
-        rf=RISK_FREE_RATE,
+        rf=rf,
         tickers=TICKERS,
         bounds=WEIGHT_BOUNDS,
         fixed_weights=FIXED_WEIGHTS,
         min_weights=MIN_WEIGHTS,
     )
-    target_stats = portfolio_stats(target_weights, mu, cov, RISK_FREE_RATE)
+    target_stats = portfolio_stats(target_weights, mu, cov, rf)
 
     current_series = build_portfolio_return_series(asset_returns, current_weights, TICKERS)
 
@@ -172,6 +169,7 @@ def main() -> None:
         print("\n" + "=" * 60)
         print("IMPLEMENTATION COST ANALYSIS")
         print("=" * 60)
+        print("Tax drag is an approximate estimate using assumed gains and holding periods; no tax lots.")
         for key, value in implementation_report.items():
             print(f"{key}: {value:.4f}")
 
@@ -181,7 +179,7 @@ def main() -> None:
     current_perf = current_portfolio_performance(
         portfolio_returns=current_series,
         benchmark_returns=benchmark_returns,
-        rf=RISK_FREE_RATE,
+        rf=rf,
         trading_days=TRADING_DAYS,
     )
     print(current_perf.round(4))

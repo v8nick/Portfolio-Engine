@@ -77,19 +77,22 @@ def optimize_max_sharpe(
 ) -> np.ndarray:
     ef = EfficientFrontier(mu, cov, weight_bounds=bounds)
     ef.max_sharpe(risk_free_rate=rf)
-    cleaned = ef.clean_weights()
-    return _clean_weights_to_array(cleaned, list(mu.index))
+    return np.asarray(ef.weights, dtype=float)
 
 
 def optimize_min_vol(
     mu: pd.Series,
     cov: pd.DataFrame,
-    bounds: tuple[float, float] = (0.0, 1.0)
+    bounds: tuple[float, float] = (0.0, 1.0),
+    tickers: list[str] | None = None,
+    fixed_weights: dict[str, float] | None = None,
+    min_weights: dict[str, float] | None = None,
+    max_group_weights: dict | None = None,
 ) -> np.ndarray:
     ef = EfficientFrontier(mu, cov, weight_bounds=bounds)
+    _add_constraints(ef, tickers or list(mu.index), fixed_weights, min_weights, max_group_weights)
     ef.min_volatility()
-    cleaned = ef.clean_weights()
-    return _clean_weights_to_array(cleaned, list(mu.index))
+    return np.asarray(ef.weights, dtype=float)
 
 
 def optimize_max_sharpe_constrained(
@@ -100,18 +103,90 @@ def optimize_max_sharpe_constrained(
     bounds: tuple[float, float] = (0.0, 1.0),
     fixed_weights: dict[str, float] | None = None,
     min_weights: dict[str, float] | None = None,
+    max_group_weights: dict | None = None,
 ) -> np.ndarray:
-    fixed_weights = fixed_weights or {}
-    min_weights = min_weights or {}
-
     ef = EfficientFrontier(mu, cov, weight_bounds=bounds)
-
-    for ticker, value in fixed_weights.items():
-        ef.add_constraint(lambda w, t=tickers.index(ticker), v=value: w[t] == v)
-
-    for ticker, value in min_weights.items():
-        ef.add_constraint(lambda w, t=tickers.index(ticker), v=value: w[t] >= v)
+    _add_constraints(ef, tickers, fixed_weights, min_weights, max_group_weights)
 
     ef.max_sharpe(risk_free_rate=rf)
-    cleaned = ef.clean_weights()
-    return _clean_weights_to_array(cleaned, tickers)
+    return np.asarray(ef.weights, dtype=float)
+
+
+def _add_constraints(optimizer, tickers, fixed_weights=None, min_weights=None, max_group_weights=None):
+    for ticker, value in (fixed_weights or {}).items():
+        optimizer.add_constraint(lambda w, t=tickers.index(ticker), v=value: w[t] == v)
+    for ticker, value in (min_weights or {}).items():
+        optimizer.add_constraint(lambda w, t=tickers.index(ticker), v=value: w[t] >= v)
+    for names, cap in (max_group_weights or {}).values():
+        indices = [tickers.index(t) for t in names]
+        if indices:
+            optimizer.add_constraint(lambda w, idx=indices, v=cap: w[idx].sum() <= v)
+
+
+def _scipy_constraints(tickers, max_group_weights=None):
+    constraints = [{'type': 'eq', 'fun': lambda w: w.sum() - 1}]
+    for names, cap in (max_group_weights or {}).values():
+        indices = [tickers.index(t) for t in names]
+        if indices:
+            constraints.append({'type': 'ineq', 'fun': lambda w, idx=indices, v=cap: v - w[idx].sum()})
+    return constraints
+
+
+def validate_allocation_weights(weights, tickers, bounds, max_group_weights=None, tolerance=1e-6):
+    weights = np.asarray(weights, dtype=float)
+    limits = np.asarray(bounds, dtype=float)
+    if limits.shape == (2,):
+        limits = np.tile(limits, (len(tickers), 1))
+    if weights.shape != (len(tickers),) or not np.isfinite(weights).all() or not np.isclose(weights.sum(), 1, atol=tolerance, rtol=0):
+        raise ValueError('Allocation must be finite, aligned, and sum to one.')
+    if (weights < limits[:, 0] - tolerance).any() or (weights > limits[:, 1] + tolerance).any():
+        raise ValueError('Allocation violates asset bounds.')
+    for names, cap in (max_group_weights or {}).values():
+        if sum(weights[tickers.index(t)] for t in names) > cap + tolerance:
+            raise ValueError('Allocation violates a group cap.')
+
+
+def project_allocation(target, tickers, bounds, initial_weights, max_group_weights=None):
+    """Closest feasible budget-balanced allocation, including fixed/band/group limits."""
+    from scipy.optimize import minimize
+    result = minimize(lambda w: np.sum((w - target) ** 2), initial_weights,
+                      method='SLSQP', bounds=bounds,
+                      constraints=_scipy_constraints(tickers, max_group_weights),
+                      options={'ftol': 1e-12, 'maxiter': 500})
+    if not result.success:
+        raise ValueError(f'Allocation projection failed: {result.message}')
+    validate_allocation_weights(result.x, tickers, bounds, max_group_weights)
+    return result.x
+
+
+def optimize_risk_parity(cov: pd.DataFrame, bounds, initial_weights,
+                         max_group_weights=None) -> np.ndarray:
+    """Approximate equal percentage risk contributions under the same hard limits.
+
+    Bounds, fixed positions and negative covariances can prevent exact ERC.
+    """
+    from scipy.optimize import minimize
+    sigma = cov.to_numpy()
+    def objective(w):
+        variance = w @ sigma @ w
+        if variance <= 0:
+            return 1e6
+        percent = w * (sigma @ w) / variance
+        return float(np.sum((percent - 1 / len(w)) ** 2))
+    result = minimize(objective, initial_weights, method='SLSQP', bounds=bounds,
+                      constraints=_scipy_constraints(list(cov.index), max_group_weights),
+                      options={'ftol': 1e-12, 'maxiter': 1000})
+    if not result.success:
+        raise ValueError(f'Risk parity failed: {result.message}')
+    validate_allocation_weights(result.x, list(cov.index), bounds, max_group_weights)
+    return result.x
+
+
+def optimize_min_cvar(mu: pd.Series, returns: pd.DataFrame, bounds,
+                      beta: float = .95, max_group_weights=None) -> np.ndarray:
+    """PyPortfolioOpt/cvxpy empirical daily expected-shortfall minimization."""
+    from pypfopt import EfficientCVaR
+    ef = EfficientCVaR(mu, returns, beta=beta, weight_bounds=bounds)
+    _add_constraints(ef, list(mu.index), max_group_weights=max_group_weights)
+    ef.min_cvar()
+    return np.asarray(ef.weights, dtype=float)

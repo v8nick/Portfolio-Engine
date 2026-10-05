@@ -42,7 +42,8 @@ MIN_WEIGHTS = {
     "LMT": 0.05,
 }
 
-BL_MARKET_WEIGHTS = STARTING_WEIGHTS.copy()
+BL_STRATEGIC_PRIOR_WEIGHTS = None  # Supply strategic weights; None uses labeled equal weights.
+BL_MARKET_WEIGHTS = BL_STRATEGIC_PRIOR_WEIGHTS  # Legacy alias.
 
 BL_ABSOLUTE_VIEWS = {
     "QQQ": (0.14, 0.70),
@@ -57,7 +58,7 @@ BL_ABSOLUTE_VIEWS = {
     "BA": (0.12, 0.30),
 }
 
-# Placeholder only. Relative views are not implemented in black_litterman.py yet.
+# (outperformer, underperformer, annual return difference, confidence in [0,1]).
 BL_RELATIVE_VIEWS = [
     ("QQQ", "IWM", 0.03, 0.75),
     ("QQQ", "LMT", 0.04, 0.70),

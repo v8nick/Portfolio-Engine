@@ -134,3 +134,22 @@ def monte_carlo_risk_report(
     }
 
     return pd.DataFrame(rows, index=["Monte Carlo"]).T
+
+def market_intelligence_table(snapshot: dict) -> pd.DataFrame:
+    """Compact console dashboard, retaining units and observation dates."""
+    rows = []
+    metrics = {**snapshot["rates"], **snapshot["equities"], **snapshot["fx"],
+               "VIX": snapshot["volatility"]["VIX"], "TLT": snapshot["fixed_income"]["TLT"],
+               **snapshot["credit"], "2s10s": snapshot["curve"]}
+    for name, metric in metrics.items():
+        daily = metric["changes"]["1D"]
+        if daily is not None and metric["change_unit"] == "decimal_return":
+            daily *= 100
+        rows.append({"Indicator": name, "Value": metric["value"], "Unit": metric["unit"],
+                     "1D change": daily, "Change unit": "bp" if metric["change_unit"] == "basis_points" else "%",
+                     "As of": metric["as_of"], "Stale": metric["stale"]})
+    relative = snapshot["relative_performance"]["HYG_LQD"]
+    rows.append({"Indicator": "HYG minus LQD", "Value": None, "Unit": "return difference",
+                 "1D change": relative["returns"]["1D"] * 100 if relative["returns"]["1D"] is not None else None,
+                 "Change unit": "percentage points", "As of": relative["as_of"], "Stale": relative["stale"]})
+    return pd.DataFrame(rows)
