@@ -10,7 +10,7 @@ import pandas as pd
 from streamlit.testing.v1 import AppTest
 
 from ui.helpers import (initial_editor, validate_editor, number, reason_text,
-                        allocation_table, metric_table, action_table, macro_input_table, import_portfolio_csv)
+                        allocation_table, metric_table, action_table, macro_input_table, import_portfolio_csv, complete_editor_rows)
 from ui import services
 from ui.views import PAGES
 from config import shared
@@ -57,6 +57,21 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(new['Strategic %'], 0.)
         self.assertEqual(new['Role'], 'satellite')
         pd.testing.assert_frame_equal(existing, before)
+
+    def test_simple_editor_preserves_rules_and_defaults_new_rows(self):
+        existing = initial_editor()
+        pd.testing.assert_frame_equal(complete_editor_rows(existing), existing)
+        new = pd.DataFrame([{'Ticker': 'SPY', 'Current %': 60., 'Strategic %': 60.},
+                            {'Ticker': 'NEWSTOCK', 'Current %': 40., 'Strategic %': 0.}])
+        completed = complete_editor_rows(new)
+        self.assertEqual(completed.loc[0, 'Low %'], 55.)
+        self.assertEqual(completed.loc[0, 'High %'], 65.)
+        self.assertEqual(completed.loc[0, 'Role'], 'core')
+        self.assertEqual(completed.loc[0, 'Group'], 'us_equity')
+        self.assertEqual(completed.loc[1, 'Role'], 'satellite')
+        self.assertEqual(completed.loc[1, 'Low %'], 0.)
+        self.assertEqual(completed.loc[1, 'High %'], 5.)
+        self.assertNotIn('Role', new.columns)
 
     def test_csv_replace_and_percentage_units(self):
         imported = import_portfolio_csv(b'Symbol,Weight,Strategic %,Role,Group\nSPY,60%,60,core,stocks\nIEF,40,40,core,bonds\n',
@@ -148,6 +163,24 @@ class AppTests(unittest.TestCase):
             app = self.app().run()
             self.assertFalse(app.exception)
             self.assertIsNone(app.session_state['analysis'])
+            engine.assert_not_called()
+            provider.assert_not_called()
+
+    def test_basic_advanced_toggle_preserves_editor_and_saved_analysis(self):
+        app = self.app()
+        app.session_state['analysis'] = copy.deepcopy(self.bundle)
+        frame = initial_editor()
+        frame.loc[0, 'Current %'] = 12.
+        app.session_state['editor_base'] = frame
+        with patch('ui.services.run_analysis') as engine, patch('ui.services.market_data') as provider:
+            app.run()
+            self.assertFalse(app.checkbox(key='advanced_allocations').value)
+            app.checkbox(key='advanced_allocations').set_value(True).run()
+            app.checkbox(key='advanced_allocations').set_value(False).run()
+            app.radio(key='page').set_value('Risk').run()
+            self.assertFalse(app.exception)
+            pd.testing.assert_frame_equal(app.session_state['draft_portfolio'], frame)
+            self.assertEqual(app.session_state['analysis']['recommendation'], self.bundle['recommendation'])
             engine.assert_not_called()
             provider.assert_not_called()
 

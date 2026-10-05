@@ -88,8 +88,9 @@ The app opens without downloading market data or running portfolio analysis.
 To import a portfolio, expand **Import portfolio CSV** above the sidebar table,
 choose a `.csv` file, select **Add / update tickers** or **Replace table**, and
 click **Import CSV**. A `Ticker` (or `Symbol`) column is required; a single-column
-list without a header also works. Download the CSV template there for all supported
-allocation columns. A simple file looks like:
+list without a header also works. Download the basic CSV template for ticker,
+current weight and target weight, or the advanced template for all policy columns.
+`Target %` and `Strategic %` mean the same thing. A simple file looks like:
 
 ```csv
 Ticker,Current %
@@ -109,14 +110,21 @@ must be converted to this percentage format first.
 
 1. In the sidebar, enter your **portfolio value** and edit the portfolio table.
    All weights in the editor are percentages: enter `25` for 25%.
-2. Set your **current weights** and **strategic targets**. Each column must total
+2. The basic editor shows only **Ticker**, **Current %** and **Target %**.
+   Set your current weights and strategic targets. Each weight column must total
    100%. Strategic policy represents your intended long-term allocation and is
    separate from what you currently hold.
-3. Set tactical **Low / High**, hard **Minimum / Maximum**, optional **Fixed**
+3. Enable **Show advanced allocation settings** if you want to edit tactical
+   **Low / High**, hard **Minimum / Maximum**, optional **Fixed**
    weights, asset groups and core/satellite roles. Scroll the table horizontally
    or use its fullscreen button to reach all columns. Add/delete rows as needed.
    Leave Fixed blank to allow a weight to move; a fixed weight must match its
    strategic target. Known individual stocks must be satellites.
+   Existing policy settings stay in place when hidden; a target outside those
+   limits requires adjusting them in the advanced view. New manually added rows
+   receive a target ±5 percentage-point band (clipped to 0–100%) and 0–100% hard
+   limits. Known tickers retain their configured classifications; unknown tickers
+   start as satellites and should have their roles and groups reviewed.
 4. Review satellite limits and the settings expander. The default strategy is
    illustrative; customize it before relying on any recommendation.
 5. Click **Run Analysis** and wait for completion. For a quicker initial check,

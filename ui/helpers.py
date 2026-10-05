@@ -106,6 +106,24 @@ def initial_editor():
     return pd.DataFrame(rows)
 
 
+def complete_editor_rows(frame):
+    """Supply optional policy fields for new editor rows; retain existing rules."""
+    result = frame.copy(deep=True)
+    catalog = initial_editor().set_index('Ticker')
+    for index, row in result.iterrows():
+        ticker = str(row.get('Ticker', '')).strip().upper()
+        target = row.get('Strategic %')
+        target = float(target) if pd.notna(target) else 0.
+        defaults = {'Low %': max(0., target - 5.), 'High %': min(100., target + 5.),
+                    'Minimum %': 0., 'Maximum %': 100., 'Role': 'satellite', 'Group': 'satellite'}
+        if ticker in catalog.index:
+            defaults.update(catalog.loc[ticker, ['Role', 'Group']].to_dict())
+        for name, default in defaults.items():
+            if pd.isna(row.get(name)) or (name in ('Role', 'Group') and not str(row.get(name, '')).strip()):
+                result.loc[index, name] = default
+    return result
+
+
 def import_portfolio_csv(content, existing, replace=False):
     """Import tickers/percentage columns atomically without guessing allocations."""
     try:
