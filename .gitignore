@@ -5,6 +5,7 @@ __pycache__/
 *.pyd
 quantstats_report.html
 # Virtual environments
+.runtime/
 .venv/
 venv/
 .venv/
