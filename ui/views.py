@@ -4,9 +4,9 @@ from __future__ import annotations
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-from ui.helpers import number, allocation_table, metric_table, action_table
+from ui.helpers import number, allocation_table, metric_table, action_table, macro_input_table
 
-PAGES = ('Executive overview', 'Market intelligence', 'Regime analysis',
+PAGES = ('Executive overview', 'Market intelligence', 'Macro indicators',
          'Portfolio construction', 'Risk', 'Robustness', 'Rebalance')
 COLORS = ('#8B98A8', '#344E68', '#26847E', '#AB8963', '#7C7495', '#566878')
 METHODS = {'strategic': 'Strategic', 'minimum_variance': 'Minimum variance',
@@ -34,18 +34,19 @@ def table(frame, percentages=()):
     st.dataframe(shown, hide_index=True, width='stretch')
 
 
-def probabilities(regime):
-    items = regime.get('probabilities', {})
-    chart(go.Figure(go.Bar(x=[k.title() for k in items], y=list(items.values()),
-                          marker_color=COLORS[1])).update_layout(yaxis_tickformat='.0%',
-                          title='Model regime probabilities', height=270, showlegend=False))
-    st.caption('Normalized heuristic model probabilities; not calibrated economic probabilities.')
-
-
 def score_cards(regime):
     for col, key, label in zip(st.columns(4), ('growth', 'inflation', 'financial_conditions', 'stress'),
-                             ('Growth', 'Inflation / long-rate pressure', 'Financial conditions', 'Stress')):
+                             ('Growth proxy score', 'Inflation / rate-pressure proxy score', 'Tightening proxy score', 'Stress proxy score')):
         col.metric(label, number(regime.get('scores', {}).get(key)))
+    st.caption('Smoothed standardized market-proxy scores, not GDP growth, CPI inflation, or an economic diagnosis. '
+               'Positive means above the proxy’s trailing historical average; negative means below it.')
+
+
+def macro_inputs(regime, groups=None):
+    st.dataframe(macro_input_table(regime, groups), hide_index=True, width='stretch')
+    st.caption('Saved inputs used by this analysis. Returns and return differences are percentages; Treasury yield changes are basis points. '
+               'N/A means missing or stale input; it is not treated as zero. Relative performance is a difference in returns, not a price ratio. '
+               'Rising yields and gold can have several causes; these inputs do not establish measured inflation.')
 
 
 def allocation_chart(result, core_only=False):
@@ -74,14 +75,12 @@ def metrics(result):
 
 def overview(bundle):
     result, regime = bundle['recommendation'], bundle['recommendation'].get('regime', {})
-    cols = st.columns(4)
-    cols[0].metric('Primary regime', str(regime.get('primary_regime', 'unavailable')).title())
-    cols[1].metric('Regime confidence', number(regime.get('confidence'), 'percent'))
-    cols[2].metric('Financial conditions', regime.get('overlays', {}).get('financial_conditions', 'unavailable').title())
-    cols[3].metric('Stress overlay', regime.get('overlays', {}).get('stress', 'unavailable').title())
-    st.subheader('Macro assessment')
-    score_cards(regime)
-    probabilities(regime)
+    st.subheader('Market indicators')
+    macro_inputs(regime, ('Growth', 'Inflation / rate pressure'))
+    with st.expander('Composite market-proxy scores'):
+        score_cards(regime)
+    st.caption('See Macro indicators for financial conditions, stress inputs and score construction. '
+               'The portfolio engine still uses historical market-pattern weights to adjust return estimates; these are heuristic inputs, not economic forecasts.')
     st.subheader('Core allocation')
     allocation_chart(result, core_only=True)
     st.caption('Bars show central allocations. Intervals show the backend recommended ranges, not confidence intervals.')
@@ -153,29 +152,34 @@ def market(bundle, preview=None):
 
 def regimes(bundle):
     regime = bundle['recommendation'].get('regime', {})
-    st.write(f"Primary: **{str(regime.get('primary_regime')).title()}** · Raw: {regime.get('raw_regime', 'N/A')} · "
-             f"Smoothed: {regime.get('smoothed_regime', 'N/A')} · Confidence: {number(regime.get('confidence'), 'percent')}")
+    st.subheader('Underlying market metrics')
+    macro_inputs(regime)
+    st.subheader('How the inputs combine')
     score_cards(regime)
-    growth, inflation = (regime.get('scores', {}).get(k) for k in ('growth', 'inflation'))
-    if growth is not None and inflation is not None:
-        extent = max(2., abs(growth) + .5, abs(inflation) + .5)
-        fig = go.Figure(go.Scatter(x=[growth], y=[inflation], mode='markers',
-            marker=dict(size=16, color=COLORS[2]), name='Current backend scores'))
-        fig.add_hline(y=0, line_color='#CBD2DA').add_vline(x=0, line_color='#CBD2DA')
-        for x, y, label in [(1, 1, 'Reflation'), (-1, 1, 'Stagflation'), (1, -1, 'Goldilocks'), (-1, -1, 'Slowdown')]:
-            fig.add_annotation(x=x * extent * .65, y=y * extent * .8, text=label, showarrow=False)
-        chart(fig.update_layout(xaxis=dict(title='Growth score', range=[-extent, extent]),
-                                yaxis=dict(title='Inflation / long-rate pressure', range=[-extent, extent]), height=430))
-    else:
-        st.warning('Insufficient data for the growth / inflation quadrant.')
-    probabilities(regime)
+    labels = {'growth': 'Growth proxy', 'inflation': 'Inflation / rate-pressure proxy',
+              'financial_conditions': 'Tightening proxy', 'stress': 'Stress proxy'}
+    table(pd.DataFrame([{'Composite': label, 'Before smoothing': regime.get('raw_scores', {}).get(key),
+                        'After smoothing': regime.get('scores', {}).get(key),
+                        'Available input weight': regime.get('coverage', {}).get(key)}
+                       for key, label in labels.items()]), ('Available input weight',))
+    st.caption('Available input weight measures data coverage, not confidence. Missing families are excluded and available weights renormalized; '
+               'at least two families are required for each score.')
+    st.info('The default model compares 21- and 63-session changes with each input’s trailing three-year history '
+            '(at least one year required). Standardized values are capped at ±3, horizons are averaged within each input family, '
+            'then families are combined with equal weights except gold at half weight. Scores use exponential smoothing with a 10-session span. '
+            'The backend retains heuristic market-pattern weights for portfolio calculations; no current economic regime or probability is asserted here.')
     history = bundle.get('history', pd.DataFrame())
     if not history.empty:
-        with st.expander('Historical classification and scores'):
-            st.dataframe(history, width='stretch')
-    st.subheader('Historical conditional returns')
+        with st.expander('Historical market-proxy scores'):
+            columns = [f'smoothed_{key}_score' for key in labels if f'smoothed_{key}_score' in history]
+            st.line_chart(history[columns].rename(columns={f'smoothed_{k}_score': v for k, v in labels.items()}))
+    st.subheader('Historical returns by market pattern')
     horizon = st.selectbox('Forward horizon', ['1 month', '3 months', '6 months'], key='conditional_horizon')
-    selected = st.selectbox('Historical regime', ['goldilocks', 'reflation', 'slowdown', 'stagflation'], key='conditional_regime')
+    patterns = {'Growth above / pressure below average': 'goldilocks',
+                'Growth above / pressure above average': 'reflation',
+                'Growth below / pressure below average': 'slowdown',
+                'Growth below / pressure above average': 'stagflation'}
+    selected = patterns[st.selectbox('Historical market pattern', list(patterns), key='conditional_pattern')]
     st.info('Historical conditional outcomes are descriptive and are not forecasts.')
     st.caption('Cumulative simple returns over 21 / 63 / 126 trading observations. Completed, globally non-overlapping samples; not annualized.')
     frame = bundle.get('outcomes', pd.DataFrame())
@@ -311,5 +315,5 @@ def render(page, bundle, preview=None):
     elif bundle is None:
         st.info('Configure the portfolio in the sidebar and click Run Analysis.')
     else:
-        {'Executive overview': overview, 'Regime analysis': regimes, 'Portfolio construction': portfolio,
+        {'Executive overview': overview, 'Macro indicators': regimes, 'Portfolio construction': portfolio,
          'Risk': risk, 'Robustness': robustness, 'Rebalance': rebalance}[page](bundle)
