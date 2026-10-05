@@ -73,11 +73,11 @@ TRADE_ACTION_THRESHOLD = 0.005
 # Phase 3 illustrative core policy, independent of CURRENT_WEIGHTS. Customize
 # these strategic assumptions before using recommendations for a real mandate.
 STRATEGIC_ALLOCATION = {
-    'SPY': {'strategic_weight': .30, 'minimum_weight': .15, 'maximum_weight': .45, 'tactical_low': .25, 'tactical_high': .35, 'group': 'us_equity', 'role': 'core'},
+    'SPY': {'strategic_weight': .35, 'minimum_weight': .15, 'maximum_weight': .45, 'tactical_low': .30, 'tactical_high': .40, 'group': 'us_equity', 'role': 'core'},
     'IWM': {'strategic_weight': .05, 'minimum_weight': 0., 'maximum_weight': .15, 'tactical_low': .02, 'tactical_high': .08, 'group': 'us_equity', 'role': 'core'},
     'VEA': {'strategic_weight': .10, 'minimum_weight': 0., 'maximum_weight': .20, 'tactical_low': .07, 'tactical_high': .13, 'group': 'international_equity', 'role': 'core'},
     'VWO': {'strategic_weight': .05, 'minimum_weight': 0., 'maximum_weight': .15, 'tactical_low': .02, 'tactical_high': .08, 'group': 'international_equity', 'role': 'core'},
-    'IEF': {'strategic_weight': .15, 'minimum_weight': .05, 'maximum_weight': .30, 'tactical_low': .10, 'tactical_high': .20, 'group': 'treasuries', 'role': 'core'},
+    'IEF': {'strategic_weight': .20, 'minimum_weight': .05, 'maximum_weight': .30, 'tactical_low': .15, 'tactical_high': .25, 'group': 'treasuries', 'role': 'core'},
     'TIP': {'strategic_weight': .05, 'minimum_weight': 0., 'maximum_weight': .15, 'tactical_low': .02, 'tactical_high': .08, 'group': 'inflation_linked', 'role': 'core'},
     'LQD': {'strategic_weight': .05, 'minimum_weight': 0., 'maximum_weight': .15, 'tactical_low': .02, 'tactical_high': .08, 'group': 'credit', 'role': 'core'},
     'BIL': {'strategic_weight': .05, 'minimum_weight': 0., 'maximum_weight': .20, 'tactical_low': .02, 'tactical_high': .10, 'group': 'cash', 'role': 'core'},
@@ -88,3 +88,4 @@ MAX_SATELLITE_ALLOCATION = .15
 MAX_INDIVIDUAL_SATELLITE_WEIGHT = .05
 # Existing growth/thematic funds and stocks stay supported as satellites.
 SATELLITE_GROUPS = {ticker: 'us_equity' for ticker in TICKERS if ticker not in STRATEGIC_ALLOCATION}
+INDIVIDUAL_STOCK_TICKERS = ('MSFT', 'NVDA', 'AAPL', 'AVGO', 'AMZN', 'PLTR', 'LMT', 'BA')

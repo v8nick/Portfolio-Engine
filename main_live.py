@@ -230,4 +230,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    if "--decision" in sys.argv:
+        from portfolio_decision import main as decision_main
+        decision_main()
+    else:
+        main()
