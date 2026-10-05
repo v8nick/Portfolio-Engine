@@ -510,3 +510,20 @@ new ETFs have shorter samples, overlapping outcomes inflate nominal counts,
 and results remain descriptive. A one-day Treasury lag cannot substitute for
 release timestamps or historical vintages. Portfolio integration is deferred
 to Phase 3.
+
+# Streamlit dashboard (Phase 4)
+
+From the repository root, install `requirements.txt` into your environment and run:
+
+```bash
+python -m streamlit run ui/app.py
+```
+
+With the existing project environment, use `venv/bin/python -m streamlit run ui/app.py`.
+Edit percentage weights, strategic policy and settings in the sidebar, then click
+**Run Analysis**. Seven views share the saved backend result. Changing pages,
+chart horizons or inputs does not run optimization. **Refresh Market Data**
+explicitly refreshes the provider data; run analysis again to incorporate it.
+State lasts for the browser session; download the recommendation JSON to retain it.
+Defaults are illustrative. Per-position costs are unavailable because the engine
+provides aggregate estimates only. Existing CLI and research commands remain available.

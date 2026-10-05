@@ -1,0 +1,221 @@
+"""Small presentation/adapter tests with deterministic data; no UI internals mocked."""
+import copy
+import json
+from pathlib import Path
+import unittest
+from unittest.mock import patch
+
+import numpy as np
+import pandas as pd
+from streamlit.testing.v1 import AppTest
+
+from ui.helpers import (initial_editor, validate_editor, number, reason_text,
+                        allocation_table, metric_table, action_table)
+from ui import services
+from ui.views import PAGES
+from config import shared
+from market_intelligence import MARKET_SYMBOLS
+from portfolio_decision import build_portfolio_recommendation
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class HelperTests(unittest.TestCase):
+    def test_formats_and_missing(self):
+        self.assertEqual(number(.234, 'percent'), '23.4%')
+        self.assertEqual(number(5.34, 'yield'), '5.34%')
+        self.assertEqual(number(6.3, 'bp'), '+6.3 bp')
+        self.assertEqual(number(1250000, 'money'), '$1,250,000')
+        self.assertEqual(number(float('nan')), 'N/A')
+        self.assertEqual(number(None), 'N/A')
+
+    def test_reason_codes_unknown_safe(self):
+        self.assertIn('New reason.', reason_text(['new_reason']))
+        self.assertIn('rebalance threshold', reason_text(['within_no_trade_band']))
+
+    def test_default_policy_valid_and_not_mutated(self):
+        frame = initial_editor()
+        before = frame.copy(deep=True)
+        holdings, policy, errors = validate_editor(frame, .15, .05)
+        self.assertEqual(errors, [])
+        self.assertAlmostEqual(sum(holdings.values()), 1)
+        self.assertAlmostEqual(sum(p['strategic_weight'] for p in policy.values()), 1)
+        pd.testing.assert_frame_equal(frame, before)
+
+    def test_invalid_strategic_sum(self):
+        frame = initial_editor()
+        frame.loc[0, 'Strategic %'] -= 1
+        self.assertTrue(any('Strategic weights total' in x for x in validate_editor(frame, .15, .05)[2]))
+
+    def test_invalid_tactical_and_hard_bands(self):
+        frame = initial_editor()
+        frame.loc[0, 'Low %'] = 50
+        self.assertTrue(any('tactical' in x for x in validate_editor(frame, .15, .05)[2]))
+        frame = initial_editor()
+        frame.loc[0, 'Minimum %'] = 90
+        self.assertTrue(any('minimum' in x for x in validate_editor(frame, .15, .05)[2]))
+
+    def test_invalid_current_duplicates_and_fixed(self):
+        frame = initial_editor()
+        frame.loc[0, 'Current %'] = -1
+        self.assertTrue(validate_editor(frame, .15, .05)[2])
+        frame = initial_editor()
+        frame.loc[1, 'Ticker'] = frame.loc[0, 'Ticker']
+        self.assertTrue(any('duplicate' in x for x in validate_editor(frame, .15, .05)[2]))
+        frame = initial_editor()
+        frame.loc[0, 'Fixed %'] = 33
+        self.assertTrue(any('fixed' in x for x in validate_editor(frame, .15, .05)[2]))
+
+
+class AppTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        rng = np.random.default_rng(10)
+        dates = pd.bdate_range('2020-01-01', periods=650)
+        cls.prices = pd.DataFrame(100 * np.exp(np.cumsum(rng.normal(.0003, .01, (650, len(MARKET_SYMBOLS))), axis=0)),
+                                  columns=list(MARKET_SYMBOLS), index=dates)
+        cls.yields = pd.DataFrame({'2Y': 3 + rng.normal(0, .2, 650), '10Y': 4 + rng.normal(0, .2, 650), '3MO': 3.}, index=dates)
+        cls.holdings = {'SPY': .5, 'IEF': .3, 'GLD': .2}
+        cls.policy = {t: dict(strategic_weight=w, minimum_weight=0., maximum_weight=1.,
+                             tactical_low=w-.05, tactical_high=w+.05, role='core', group=t) for t, w in cls.holdings.items()}
+        cls.options = {'robustness_repetitions': 3}
+        cls.data = {'prices': cls.prices, 'yields': cls.yields, 'data_quality': [], 'sources': {}}
+        cls.as_of = dates[-1].isoformat()
+        cls.bundle = services.run_analysis(cls.data, cls.holdings, cls.policy, cls.options, .03, cls.as_of)
+        cls.bundle.update(portfolio_value=1000000, config={}, completed_at=cls.as_of)
+
+    def app(self):
+        return AppTest.from_file(str(ROOT / 'ui' / 'app.py'), default_timeout=20)
+
+    def test_first_run_no_backend_or_download(self):
+        with patch('ui.services.run_analysis') as engine, patch('ui.services.market_data') as provider:
+            app = self.app().run()
+            self.assertFalse(app.exception)
+            self.assertIsNone(app.session_state['analysis'])
+            engine.assert_not_called()
+            provider.assert_not_called()
+
+    def test_adapter_matches_direct_backend(self):
+        direct = build_portfolio_recommendation(self.prices, self.yields, self.holdings, self.policy,
+                                                as_of=self.as_of, risk_free_rate=.03, options=self.options)
+        self.assertEqual(self.bundle['recommendation'], direct)
+
+    def test_helpers_do_not_mutate_json_result(self):
+        result = json.loads(json.dumps(self.bundle['recommendation'], allow_nan=False))
+        original = copy.deepcopy(result)
+        for helper in (allocation_table, metric_table, action_table):
+            self.assertFalse(helper(result).empty)
+        self.assertEqual(result, original)
+
+    def test_all_pages_render_failed_optimizer_and_preserve_state(self):
+        bundle = copy.deepcopy(self.bundle)
+        bundle['recommendation']['candidate_allocations']['cvar'] = {'status': 'unavailable', 'weights': None}
+        bundle['recommendation']['warnings'].append('cvar unavailable: synthetic test failure')
+        before = copy.deepcopy(bundle)
+        app = self.app()
+        app.session_state['analysis'] = bundle
+        with patch('ui.services.run_analysis') as engine, patch('ui.services.market_data') as provider:
+            app.run()
+            for page in PAGES:
+                app.radio(key='page').set_value(page).run()
+                self.assertFalse(app.exception, (page, [e.message for e in app.exception]))
+            # Chart-only changes must not run the engine either.
+            app.radio(key='page').set_value('Market intelligence').run()
+            app.selectbox(key='market_horizon').set_value('63D').run()
+            engine.assert_not_called()
+            provider.assert_not_called()
+        self.assertEqual(app.session_state['analysis']['recommendation'], before['recommendation'])
+        pd.testing.assert_frame_equal(app.session_state['analysis']['outcomes'], before['outcomes'])
+
+    def test_missing_market_data_warns_without_crash(self):
+        empty = {'prices': pd.DataFrame(index=pd.DatetimeIndex([])), 'yields': pd.DataFrame(index=pd.DatetimeIndex([])),
+                 'data_quality': ['Treasury source unavailable.']}
+        app = self.app()
+        app.session_state['market_preview'] = services.snapshot(empty, self.as_of)
+        app.run()
+        app.radio(key='page').set_value('Market intelligence').run()
+        self.assertFalse(app.exception)
+        self.assertTrue(app.warning)
+
+    def test_invalid_inputs_prevent_engine_call(self):
+        app = self.app()
+        frame = initial_editor()
+        frame.loc[0, 'Strategic %'] = 34
+        app.session_state['editor_base'] = frame
+        with patch('ui.services.run_analysis') as engine, patch('ui.services.market_data') as provider:
+            app.run()
+            app.button[0].click().run()
+            engine.assert_not_called()
+            provider.assert_not_called()
+            self.assertTrue(app.error)
+
+    def test_failed_run_retains_last_success(self):
+        app = self.app()
+        app.session_state['analysis'] = copy.deepcopy(self.bundle)
+        with patch('ui.services.market_data', return_value=self.data), patch('ui.services.run_analysis', side_effect=ValueError('Missing required portfolio price series: TEST')):
+            app.run()
+            app.button[0].click().run()
+        self.assertFalse(app.exception)
+        self.assertTrue(app.error)
+        self.assertEqual(app.session_state['analysis']['recommendation'], self.bundle['recommendation'])
+
+    def test_refresh_does_not_run_engine(self):
+        app = self.app()
+        with patch('ui.services.market_data', return_value=self.data) as provider, patch('ui.services.run_analysis') as engine:
+            app.run()
+            app.button[1].click().run()
+            self.assertFalse(app.exception)
+            engine.assert_not_called()
+            self.assertTrue(provider.call_args.args[-1])
+            self.assertIsNone(app.session_state['analysis'])
+            self.assertIsNotNone(app.session_state['market_preview'])
+
+    def test_run_invokes_engine_once_and_stores_output(self):
+        app = self.app()
+        with patch('ui.services.market_data', return_value=self.data), patch('ui.services.run_analysis', return_value=copy.deepcopy(self.bundle)) as engine:
+            app.run()
+            app.button[0].click().run()
+            self.assertFalse(app.exception)
+            self.assertIsNotNone(app.session_state['last_success'])
+            app.radio(key='page').set_value('Risk').run()
+            self.assertEqual(engine.call_count, 1)
+
+    def test_run_button_with_real_engine_and_navigation(self):
+        app = self.app()
+        frame = pd.DataFrame([{'Ticker': t, 'Current %': w * 100, 'Strategic %': w * 100,
+            'Low %': (w - .05) * 100, 'High %': (w + .05) * 100, 'Minimum %': 0.,
+            'Maximum %': 100., 'Fixed %': None, 'Role': 'core', 'Group': t} for t, w in self.holdings.items()])
+        app.session_state['editor_base'] = frame
+        app.session_state['as_of'] = self.prices.index[-1].date()
+        app.session_state['repetitions'] = 3
+        with patch('ui.services.market_data', return_value=self.data), patch('ui.services.build_portfolio_recommendation', wraps=build_portfolio_recommendation) as engine:
+            app.run()
+            app.button[0].click().run()
+            self.assertFalse(app.exception)
+            self.assertFalse(app.error)
+            saved = copy.deepcopy(app.session_state['analysis']['recommendation'])
+            self.assertAlmostEqual(sum(saved['recommended_portfolio']['central_weights'].values()), 1.)
+            app.radio(key='page').set_value('Robustness').run()
+            self.assertFalse(app.exception)
+            self.assertEqual(engine.call_count, 1)
+            self.assertEqual(app.session_state['analysis']['recommendation'], saved)
+
+    def test_sidebar_settings_persist_across_navigation(self):
+        app = self.app().run()
+        with patch('ui.services.run_analysis') as engine, patch('ui.services.market_data') as provider:
+            app.number_input(key='threshold').set_value(2.).run()
+            app.radio(key='page').set_value('Risk').run()
+            self.assertEqual(app.session_state['threshold'], 2.)
+            engine.assert_not_called()
+            provider.assert_not_called()
+
+    def test_noncritical_research_failure_retains_recommendation(self):
+        with patch('ui.services.research_outputs', side_effect=ValueError('incomplete history')):
+            bundle = services.run_analysis(self.data, self.holdings, self.policy, self.options, .03, self.as_of)
+        self.assertEqual(bundle['recommendation'], self.bundle['recommendation'])
+        self.assertTrue(bundle['outcomes'].empty)
+        self.assertTrue(bundle['warnings'])
+
+
+if __name__ == '__main__':
+    unittest.main()
