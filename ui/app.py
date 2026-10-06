@@ -78,18 +78,19 @@ with st.sidebar:
         template['Current %'] = template['Strategic %']
         st.download_button('Download CSV template', template.rename(columns={'Strategic %': 'Target %'}).to_csv(index=False),
             file_name='portfolio_template.csv', mime='text/csv', key='csv_template')
-        st.download_button('Download advanced CSV template', 'Ticker,Current %,Strategic %,Low %,High %,Minimum %,Maximum %,Fixed %,Role,Group\n'
+        st.download_button('Download advanced CSV template', 'Ticker,Current %,Target %,Low %,High %,Minimum %,Maximum %,Fixed %,Role,Group\n'
             'SPY,60,60,50,70,0,100,,core,us_equity\nIEF,40,40,30,50,0,100,,core,treasury\n',
             file_name='portfolio_advanced_template.csv', mime='text/csv', key='csv_advanced_template')
         if 'csv_message' in st.session_state:
             kind, message = st.session_state.csv_message
             getattr(st, kind)(message)
     advanced = st.checkbox('Show advanced allocation settings', key='advanced_allocations', on_change=switch_editor_view)
-    st.caption('Enter Ticker, Current % (what you own), and Target % (your long-term plan). Each weight column must total 100%.')
+    st.caption('Current % is the share you own today. Target % is the share you want in your long-term portfolio '
+               '(20 means 20% of the portfolio). Each column must total 100%.')
     numeric = {name: st.column_config.NumberColumn(name, min_value=0., max_value=100., format='%.2f')
                for name in ('Current %', 'Strategic %', 'Low %', 'High %', 'Minimum %', 'Maximum %', 'Fixed %')}
     numeric['Strategic %'] = st.column_config.NumberColumn('Target %', min_value=0., max_value=100., format='%.2f',
-        help='Your long-term strategic allocation, separate from current holdings.')
+        help='The percentage you want this holding to represent in your long-term portfolio. This is the input previously called Strategic %.')
     numeric['Role'] = st.column_config.SelectboxColumn('Role', options=['core', 'satellite'], required=True)
     if not advanced:
         numeric.update({name: None for name in ('Low %', 'High %', 'Minimum %', 'Maximum %', 'Fixed %', 'Role', 'Group')})
