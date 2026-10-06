@@ -149,7 +149,9 @@ class HelperTests(unittest.TestCase):
     def test_invalid_strategic_sum(self):
         frame = initial_editor()
         frame.loc[0, 'Strategic %'] -= 1
-        self.assertTrue(any('Strategic weights total' in x for x in validate_editor(frame, .15, .05)[2]))
+        errors = validate_editor(frame, .15, .05)[2]
+        self.assertTrue(any('Target % values total' in x for x in errors))
+        self.assertFalse(any('Strategic' in x for x in errors))
 
     def test_invalid_tactical_and_hard_bands(self):
         frame = initial_editor()

@@ -277,7 +277,7 @@ def validate_editor(frame, satellite_cap, individual_cap):
             if pd.notna(fixed):
                 item['fixed_weight'] = float(fixed) / 100
             if not item['tactical_low'] <= item['strategic_weight'] <= item['tactical_high']:
-                raise ValueError('strategic target must lie within the tactical low/high band')
+                raise ValueError('Target % must lie within the tactical low/high band')
             if item['minimum_weight'] > item['maximum_weight']:
                 raise ValueError('minimum must not exceed maximum')
             policy[ticker] = item
@@ -286,14 +286,15 @@ def validate_editor(frame, satellite_cap, individual_cap):
         except (ValueError, TypeError, KeyError) as exc:
             errors.append(f'{ticker}: {exc}.')
     for name, total in [('Current', sum(holdings.values())),
-                        ('Strategic', sum(p['strategic_weight'] for p in policy.values()))]:
+                        ('Target', sum(p['strategic_weight'] for p in policy.values()))]:
         if not math.isclose(total, 1., abs_tol=1e-8, rel_tol=0):
-            errors.append(f'{name} weights total {total * 100:.4f}%; they must total 100%.')
+            errors.append(f'{name} % values total {total * 100:.4f}%; they must total 100%.')
     if not errors:
         try:
             resolve_allocation_policy(policy, holdings, satellite_cap, individual_cap)
         except ValueError as exc:
-            errors.append(f'Portfolio policy: {exc}')
+            message = str(exc).replace('strategic weight', 'Target %').replace('strategy', 'Target %')
+            errors.append(f'Portfolio policy: {message}')
     return holdings, policy, errors
 
 
