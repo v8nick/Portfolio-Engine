@@ -232,6 +232,41 @@ class AppTests(unittest.TestCase):
                                                 as_of=self.as_of, risk_free_rate=.03, options=self.options)
         self.assertEqual(self.bundle['recommendation'], direct)
 
+    def test_correlation_uses_saved_risk_sample_and_expected_relationships(self):
+        prices = self.prices.copy()
+        changes = np.random.default_rng(123).normal(.0002, .005, len(prices))
+        for ticker, multiplier in [('SPY', 1), ('IEF', 2), ('GLD', -1)]:
+            prices[ticker] = 100 * np.cumprod(1 + multiplier * changes)
+        as_of = prices.index[-20].isoformat()
+        result = build_portfolio_recommendation(prices, self.yields, self.holdings, self.policy,
+            as_of=as_of, risk_free_rate=.03, options=self.options)
+        saved = result['asset_correlation']
+        matrix = pd.DataFrame(saved['matrix'])
+        self.assertEqual(set(matrix.columns), set(self.policy))
+        self.assertAlmostEqual(matrix.loc['SPY', 'IEF'], 1.)
+        self.assertAlmostEqual(matrix.loc['SPY', 'GLD'], -1.)
+        np.testing.assert_allclose(matrix.to_numpy(), matrix.to_numpy().T)
+        np.testing.assert_allclose(np.diag(matrix), 1.)
+        self.assertEqual(saved['observations'], result['data_policy']['common_observations'])
+        self.assertEqual(saved['sample_start'], result['data_policy']['risk_sample_start'])
+        self.assertEqual(saved['sample_end'], result['as_of'])
+        # Extreme future prices must not leak into an earlier saved matrix.
+        prices.loc[prices.index > pd.Timestamp(as_of), 'SPY'] = 1e6
+        later = build_portfolio_recommendation(prices, self.yields, self.holdings, self.policy,
+            as_of=as_of, risk_free_rate=.03, options=self.options)
+        self.assertEqual(later['asset_correlation'], saved)
+        json.dumps(saved, allow_nan=False)
+
+    def test_risk_page_handles_older_analysis_without_correlations(self):
+        app = self.app()
+        bundle = copy.deepcopy(self.bundle)
+        bundle['recommendation'].pop('asset_correlation', None)
+        app.session_state['analysis'] = bundle
+        app.run()
+        app.radio(key='page').set_value('Risk').run()
+        self.assertFalse(app.exception)
+        self.assertTrue(any('Run Analysis to calculate correlations' in item.value for item in app.info))
+
     def test_macro_views_show_evidence_without_economic_classification(self):
         app = self.app()
         app.session_state['analysis'] = copy.deepcopy(self.bundle)
