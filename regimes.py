@@ -463,3 +463,55 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
+
+
+SCENARIOS = ('Baseline', 'Growth boom', 'Persistent slowdown', 'Persistent inflation',
+             'Stagflation stress', 'Severe financial stress')
+
+
+def estimate_transition_matrix(history, as_of=None, prior_strength=4.):
+    """Daily-session transition counts including self transitions; unavailable labels break runs.
+
+    Each row shrinks toward observed unconditional occupancy. Empty history uses
+    an explicit uniform assumption. Both source and destination must be <= as_of.
+    """
+    if not np.isfinite(prior_strength) or prior_strength <= 0:
+        raise ValueError('Transition prior strength must be positive.')
+    labels = history['primary_regime'].loc[:as_of] if as_of is not None else history['primary_regime']
+    counts = pd.DataFrame(0., index=REGIMES, columns=REGIMES)
+    for previous, current in zip(labels.iloc[:-1], labels.iloc[1:]):
+        if previous in REGIMES and current in REGIMES:
+            counts.loc[previous, current] += 1
+    frequency = labels[labels.isin(REGIMES)].value_counts().reindex(REGIMES, fill_value=0).astype(float)
+    # Small occupancy prior prevents inaccessible states without inventing data.
+    prior = (frequency + 1) / (frequency.sum() + len(REGIMES))
+    matrix = counts.add(prior * prior_strength, axis=1).div(counts.sum(axis=1) + prior_strength, axis=0)
+    return matrix, {'transition_counts': counts.to_dict(), 'observed_occupancy': frequency.to_dict(),
+                    'initial_distribution': prior.to_dict(), 'prior_strength': prior_strength,
+                    'fallback': 'Uniform prior: no classified observations' if not frequency.sum() else 'Rows shrunk toward smoothed historical occupancy',
+                    'frequency': 'one transition per trading observation', 'as_of': str(as_of)}
+
+
+def scenario_transition_matrix(matrix, scenario='Baseline'):
+    """Transparent hypothetical transition tilts; never applies fixed asset losses."""
+    if scenario not in SCENARIOS:
+        raise ValueError('Unknown regime scenario.')
+    matrix = matrix.reindex(index=REGIMES, columns=REGIMES).astype(float)
+    if not np.isfinite(matrix).all().all() or (matrix < 0).any().any() or not np.allclose(matrix.sum(axis=1), 1):
+        raise ValueError('Transition matrix must be row-stochastic.')
+    # Destination multipliers and additional self-persistence are scenario assumptions.
+    factors = {'Baseline': ([1, 1, 1, 1], []), 'Growth boom': ([2, 2, .5, .5], [0, 1]),
+               'Persistent slowdown': ([.5, .5, 3, 1], [2]),
+               'Persistent inflation': ([.5, 2, .5, 2], [1, 3]),
+               'Stagflation stress': ([.5, .5, 1, 4], [3]),
+               'Severe financial stress': ([.25, .25, 3, 3], [2, 3])}
+    multipliers, persistence = factors[scenario]
+    changed = matrix.to_numpy() * np.array(multipliers)
+    for index in persistence:
+        changed[index, index] *= 2
+    changed /= changed.sum(axis=1, keepdims=True)
+    return pd.DataFrame(changed, index=REGIMES, columns=REGIMES), {
+        'scenario': scenario, 'destination_multipliers': dict(zip(REGIMES, multipliers)),
+        'self_transition_multiplier': 2 if persistence else 1,
+        'persistence_regimes': [REGIMES[i] for i in persistence],
+        'limitation': 'Hypothetical transition tilt, not a calibrated crisis model. No arbitrary asset return shocks.'}

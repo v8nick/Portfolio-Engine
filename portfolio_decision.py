@@ -514,7 +514,7 @@ def build_portfolio_recommendation(prices: pd.DataFrame, yields: pd.DataFrame,
         notes.append('Tax drag is approximate: assumed gains as a fraction of market value and holding periods; no tax lots.')
     result = {'as_of': date.isoformat(), 'requested_as_of': query_date.isoformat(), 'regime': regime,
               'risk_free_rate': rf_info, 'current_portfolio': analysis(current), 'strategic_portfolio': analysis(strategic),
-              'expected_returns': {'prior': prior.to_dict(), 'regime_weighted': {t: v['weighted_regime'] for t, v in weighted.items()},
+              'expected_returns': {'source': 'Black–Litterman posterior with configured manual views and existing regime overlay', 'prior': prior.to_dict(), 'regime_weighted': {t: v['weighted_regime'] for t, v in weighted.items()},
                                    'regime_delta': {t: v['delta'] for t, v in weighted.items()}, 'per_asset': weighted,
                                    'black_litterman_posterior': mu.to_dict(), 'regime_bl_views': tactical_views,
                                    'merged_absolute_views': merged, 'view_sources': view_sources, 'manual_relative_views': relative,
