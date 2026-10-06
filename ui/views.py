@@ -238,9 +238,48 @@ def portfolio(bundle):
         st.json(result.get('constraints', {}))
 
 
+def correlation_matrix(result):
+    st.subheader('Ticker correlation matrix')
+    saved = result.get('asset_correlation', {})
+    if not saved.get('matrix'):
+        st.info('Run Analysis to calculate correlations for this portfolio.')
+        return
+    tickers = list(result.get('policy', {}))
+    frame = pd.DataFrame(saved['matrix']).reindex(index=tickers, columns=tickers).astype(float)
+    labels = []
+    for asset, row in frame.iterrows():
+        labels.append(['Unavailable' if pd.isna(value) else 'Same asset' if asset == other
+                       else 'Potential hedge' if value <= -.3 else 'Moves together' if value >= .3
+                       else 'Low correlation / diversification' for other, value in row.items()])
+    fig = go.Figure(go.Heatmap(
+        z=frame.to_numpy(), x=tickers, y=tickers, zmin=-1, zmax=1,
+        colorscale=[[0, '#3B6FB6'], [.35, '#3B6FB6'], [.35, '#55A68B'],
+                    [.65, '#55A68B'], [.65, '#D68143'], [1, '#D68143']],
+        text=frame.map(lambda v: 'N/A' if pd.isna(v) else f'{v:.2f}').to_numpy(),
+        texttemplate='%{text}' if len(tickers) <= 25 else None,
+        customdata=labels, hoverongaps=False,
+        hovertemplate='%{y} / %{x}<br>Correlation: %{z:.2f}<br>%{customdata}<extra></extra>',
+        colorbar=dict(title='Relationship', tickvals=[-.65, 0, .65],
+                      ticktext=['Potential hedge', 'Diversification', 'Moves together'])) )
+    chart(fig.update_layout(height=max(420, min(1000, 28 * len(tickers) + 160)),
+        xaxis=dict(side='bottom', tickangle=-45, type='category'),
+        yaxis=dict(autorange='reversed', type='category'), plot_bgcolor='#E5E7EB'))
+    st.caption('Blue ≤ −0.30: opposite movement / potential hedge. Green between −0.30 and +0.30: '
+               'low correlation / diversification. Orange ≥ +0.30: tends to move together. '
+               'These are descriptive cutoffs; negative correlation does not guarantee a hedge, and positive correlation can still provide diversification. '
+               'The diagonal compares each asset with itself. Gray cells are unavailable (for example, constant returns).')
+    st.caption(f"{saved.get('method', 'Daily-return correlation')} · {saved.get('observations', 0)} common observations · "
+               f"{str(saved.get('sample_start', 'N/A'))[:10]} to {str(saved.get('sample_end', 'N/A'))[:10]}. "
+               'Includes every ticker in the saved analysis, using the same complete-case risk sample. '
+               'This is historical sample correlation, not the optimizer’s shrinkage covariance or a forecast.')
+    st.download_button('Download correlation CSV', frame.to_csv(), file_name='portfolio_correlations.csv',
+                       mime='text/csv', key='correlation_csv')
+
+
 def risk(bundle):
     result = bundle['recommendation']
     metrics(result)
+    correlation_matrix(result)
     selection = st.selectbox('Risk contribution portfolio', ['Current', 'Strategic', 'Recommended'], key='risk_portfolio')
     p = result.get({'Current': 'current_portfolio', 'Strategic': 'strategic_portfolio', 'Recommended': 'recommended_portfolio'}[selection], {})
     rows = [{'Asset': t, 'Weight': w, 'Risk contribution': p.get('risk_contributions', {}).get(t, {}).get('percentage')}

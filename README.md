@@ -142,7 +142,7 @@ must be converted to this percentage format first.
 | Market intelligence | Treasury yields, curve, cross-asset signals and backend interpretations |
 | Macro indicators | Actual model input changes, score construction, data coverage and historical returns by market pattern |
 | Portfolio construction | Strategic, minimum variance, BL max Sharpe, risk parity, CVaR and recommended allocations |
-| Risk | Tail risk, concentration, asset risk contributions and configured group exposures |
+| Risk | Tail risk, concentration, ticker correlation heatmap, asset risk contributions and configured group exposures |
 | Robustness | BL max-Sharpe bootstrap weight stability |
 | Rebalance | Backend action labels, required policy repairs, aggregate cost and approximate tax estimates |
 
@@ -150,6 +150,15 @@ Page navigation, chart selections and input edits do not rerun the portfolio
 engine. Click **Run Analysis** to apply edited inputs. **Refresh Market Data**
 requests fresh provider data; it leaves the saved portfolio recommendation intact
 until you run analysis again. A failed run retains the last successful result.
+
+The Risk page correlation matrix uses daily returns over the saved analysis’s
+common risk sample and includes every ticker in its universe. Blue (≤ −0.30)
+indicates opposite movement / a potential hedge; green (between −0.30 and +0.30)
+indicates low correlation; orange (≥ +0.30) indicates assets tending to move
+together. These descriptive thresholds do not guarantee hedging or diversification.
+Hover for exact values or download the correlation CSV. Gray cells represent
+unavailable correlations, such as constant-return series. Run Analysis again to
+add the matrix to a result saved before this feature was available.
 
 State lasts for the current browser session. Use **Download recommendation JSON**
 to save the result. It is an export, not a configuration-import feature.
