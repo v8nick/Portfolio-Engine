@@ -1,4 +1,4 @@
-"""Seven read-only dashboard views of stored backend outputs."""
+"""Dashboard views of stored outputs and explicit research controls."""
 from __future__ import annotations
 
 import pandas as pd
@@ -7,7 +7,7 @@ import streamlit as st
 from ui.helpers import number, allocation_table, metric_table, action_table, macro_input_table
 
 PAGES = ('Executive overview', 'Market intelligence', 'Macro indicators',
-         'Portfolio construction', 'Risk', 'Robustness', 'Rebalance')
+         'Portfolio construction', 'Risk', 'Robustness', 'Rebalance', 'Backtest', 'Simulation')
 COLORS = ('#8B98A8', '#344E68', '#26847E', '#AB8963', '#7C7495', '#566878')
 METHODS = {'strategic': 'Strategic', 'minimum_variance': 'Minimum variance',
            'bl_max_sharpe': 'BL max Sharpe', 'risk_parity': 'Risk parity', 'cvar': 'CVaR'}
@@ -300,7 +300,17 @@ def risk(bundle):
 
 
 def robustness(bundle):
+    from report import recommendation_diagnostics
+    from ui.helpers import reason_text
     result = bundle['recommendation']
+    st.subheader('Recommendation conviction by asset')
+    details = recommendation_diagnostics(result)
+    details['Reason'] = details.pop('Reason codes').map(reason_text)
+    table(details, ('Central weight', 'Bootstrap median', '10th percentile', '90th percentile',
+                    'Weight stability', 'Optimizer agreement', 'Strategic weight', 'Policy low', 'Policy high',
+                    'Annual regime view adjustment'))
+    st.caption('Conviction uses the lowest of bootstrap stability, optimizer agreement and recommendation confidence: '
+               'HIGH ≥75%, MEDIUM ≥40%, otherwise LOW. It is an evidence classification, not a probability of outperformance.')
     stability = result.get('stability', {})
     st.subheader('BL max-Sharpe weight stability')
     st.caption(stability.get('method', 'Method unavailable'))
@@ -355,4 +365,179 @@ def render(page, bundle, preview=None):
         st.info('Configure the portfolio in the sidebar and click Run Analysis.')
     else:
         {'Executive overview': overview, 'Macro indicators': regimes, 'Portfolio construction': portfolio,
-         'Risk': risk, 'Robustness': robustness, 'Rebalance': rebalance}[page](bundle)
+         'Risk': risk, 'Robustness': robustness, 'Rebalance': rebalance, 'Backtest': backtest, 'Simulation': simulation}[page](bundle)
+
+
+def backtest(bundle):
+    from ui.services import backtest_research
+    from walkforward import RESEARCH_STRATEGIES, backtest_history_start
+    from expected_returns import RETURN_MODELS
+    st.info('Historical backtests are not forecasts and may contain survivorship/data limitations.')
+    data = bundle.get('research_data')
+    if data is None:
+        st.info('Run Analysis to save the price history needed for research.')
+        return
+    prices = data['prices']
+    labels = {**METHODS, 'current': 'Current allocation', 'equal_weight': 'Equal weight',
+              'spy': 'SPY benchmark', 'balanced_60_40': '60/40 SPY / IEF'}
+    selected = st.multiselect('Strategies', RESEARCH_STRATEGIES,
+        default=['current', 'strategic', 'equal_weight', 'bl_max_sharpe', 'minimum_variance'],
+        format_func=lambda x: labels.get(x, x), key='bt_strategies')
+    benchmark = st.selectbox('Benchmark', ['spy', 'balanced_60_40', 'equal_weight', 'strategic'],
+        format_func=lambda x: labels.get(x, x), key='bt_benchmark')
+    lookback = st.number_input('Estimation lookback (observations)', min_value=20, max_value=2520, value=252, key='bt_lookback')
+    assets = list(dict.fromkeys(asset for strategy in [*selected, benchmark] for asset in
+        (['SPY'] if strategy == 'spy' else ['SPY', 'IEF'] if strategy == 'balanced_60_40'
+         else list(bundle['recommendation']['policy']))))
+    available_start = backtest_history_start(prices, assets, int(lookback))
+    if available_start is not None:
+        st.caption(f'First complete {lookback}-observation estimation window ends {available_start.date()}. '
+                   'The backtest begins after the next eligible rebalance. Later data gaps are still checked.')
+        if st.button('Use available history', key='bt_available_history'):
+            st.session_state['bt_start'] = available_start.date()
+    else:
+        st.warning('The selected assets do not have a complete estimation window. Reduce the lookback or review price coverage.')
+    cols = st.columns(2)
+    default_start = available_start if available_start is not None else prices.index[min(252, len(prices)-2)]
+    start = cols[0].date_input('Backtest start', value=default_start.date(), key='bt_start')
+    end = cols[1].date_input('Backtest end', value=prices.index[-1].date(), key='bt_end')
+    frequency = st.selectbox('Rebalance frequency', ['monthly', 'quarterly'], key='bt_frequency')
+    base_model = st.selectbox('Expected-return model', ['bl', 'historical_mean'], format_func=lambda x: RETURN_MODELS[x], key='bt_model')
+    overlay = st.checkbox('Regime overlay', value=False, disabled=base_model != 'bl', key='bt_overlay')
+    cost_on = st.checkbox('Include transaction costs and slippage', value=True, key='bt_cost_on')
+    transaction = st.number_input('Transaction cost (bps per traded dollar)', min_value=0., max_value=500., value=10., key='bt_cost')
+    slippage = st.number_input('Slippage (bps per traded dollar)', min_value=0., max_value=500., value=5., key='bt_slip')
+    threshold = st.number_input('No-trade weight difference (%)', min_value=0., max_value=100., value=1., key='bt_threshold')
+    controls = dict(strategies=tuple(selected), benchmark=benchmark, start=str(start), end=str(end),
+        lookback=int(lookback), rebalance_frequency=frequency, return_model='bl_regime' if base_model == 'bl' and overlay else base_model,
+        costs_enabled=cost_on, transaction_cost_bps=transaction, slippage_bps=slippage, no_trade_threshold=threshold / 100)
+    if st.button('Run Backtest', key='run_backtest'):
+        try:
+            with st.spinner('Running point-in-time strategy comparisons…'):
+                output = backtest_research(data, bundle['recommendation'], controls)
+            st.session_state['backtest_result'] = (output, controls, bundle.get('completed_at'))
+        except Exception as exc:
+            st.error(f'Backtest failed: {exc}. Previous successful results remain available.')
+    saved = st.session_state.get('backtest_result')
+    if saved is None:
+        return
+    output, previous, analysis_date = saved
+    if previous != controls or analysis_date != bundle.get('completed_at'):
+        st.warning('Inputs changed. Showing the last successful backtest; click Run Backtest to update.')
+    for name, error in output['failures'].items():
+        st.warning(f'{name}: {error}')
+    returns = output['returns']
+    if returns.empty:
+        st.warning('No strategies have usable history for this run.')
+        return
+    st.subheader('Growth of $10,000')
+    st.line_chart((10000 * (1 + returns).cumprod()).rename(columns=labels))
+    st.subheader('Strategy comparison')
+    st.dataframe(output['metrics'].rename(index=labels), width='stretch')
+    st.subheader('Drawdown')
+    growth = (1 + returns).cumprod()
+    st.line_chart((growth / growth.cummax().clip(lower=1) - 1).rename(columns=labels))
+    chosen = st.selectbox('Strategy details', list(output['strategies']),
+        format_func=lambda x: labels.get(x, x), key='bt_details')
+    item = output['strategies'][chosen]
+    st.subheader('Rolling Sharpe')
+    st.line_chart(item['rolling'][['sharpe_1y', 'sharpe_3y']])
+    st.subheader('Rolling return')
+    st.line_chart(item['rolling'][['return_1y', 'return_3y']])
+    st.caption('One-year cumulative return and three-year annualized return. Three-year series require 756 observations.')
+    st.subheader('Rolling volatility and drawdown')
+    st.line_chart(item['rolling'][['volatility_1y', 'rolling_drawdown_1y']])
+    st.subheader('Calendar returns')
+    st.dataframe(output['calendar_returns'], width='stretch')
+    st.subheader('Weights effective after each decision')
+    st.area_chart(item['weight_history'])
+    st.dataframe(item['weight_history'], width='stretch')
+    st.subheader('Descriptive historical outcomes by prior-session regime')
+    st.dataframe(item['regime_performance'], hide_index=True, width='stretch')
+    st.caption('Conditional days are concatenated for descriptive drawdown/return calculations; this is not a tradable regime strategy or a forecast.')
+    st.subheader('Turnover, trading costs and failures')
+    diagnostics = item['diagnostics']
+    if diagnostics['error'].ne('').any():
+        st.warning('Some decisions failed. Holdings were retained on those dates; review the error column.')
+    st.dataframe(diagnostics.drop(columns=['estimation_metadata', 'risk_free'], errors='ignore'), width='stretch')
+    with st.expander('Methodology and estimation provenance'):
+        st.json(output['metadata'])
+        st.write(diagnostics.get('estimation_metadata', pd.Series(dtype=object)).dropna().to_list())
+
+
+def simulation(bundle):
+    from ui.services import simulation_research
+    from simulation import SIMULATION_METHODS
+    from regimes import SCENARIOS
+    data = bundle.get('research_data')
+    if data is None:
+        st.info('Run Analysis to save the price history needed for simulation.')
+        return
+    st.info('Simulation probabilities depend on the model and assumptions; they are not guarantees or literal forecasts.')
+    result = bundle['recommendation']
+    choices = ['Current', 'Recommended', 'Strategic'] + [key for key, value in result['candidate_allocations'].items()
+        if key != 'strategic' and value.get('weights')]
+    portfolio_name = st.selectbox('Portfolio to simulate', choices, format_func=lambda x: METHODS.get(x, x), key='sim_portfolio')
+    method = st.selectbox('Simulation method', SIMULATION_METHODS, format_func=lambda x: x.replace('_', ' ').title(), key='sim_method')
+    cols = st.columns(2)
+    years = cols[0].number_input('Horizon years', min_value=1, max_value=40, value=10, key='sim_years')
+    count = cols[1].number_input('Number of simulations', min_value=100, max_value=10000, value=1000, step=100, key='sim_count')
+    initial = cols[0].number_input('Initial portfolio value', min_value=1., value=float(bundle.get('portfolio_value', 10000)), key='sim_initial')
+    goal = cols[1].number_input('Target ending value', min_value=0., value=float(bundle.get('portfolio_value', 10000)) * 2, key='sim_goal')
+    contribution = cols[0].number_input('Annual contribution', min_value=0., value=0., key='sim_contribution')
+    withdrawal = cols[1].number_input('Annual withdrawal', min_value=0., value=0., key='sim_withdrawal')
+    growth = cols[0].number_input('Annual contribution growth (%)', min_value=-99., max_value=100., value=0., key='sim_growth')
+    inflation = cols[1].number_input('Annual inflation (%)', min_value=-99., max_value=100., value=2., key='sim_inflation')
+    frequency = st.selectbox('Simulation rebalance frequency', ['monthly', 'quarterly', 'annual', 'daily', 'none'], key='sim_frequency')
+    cost = st.number_input('Trading cost including slippage (bps)', min_value=0., max_value=500., value=15., key='sim_cost')
+    uncertainty = st.checkbox('Include estimation uncertainty', key='sim_uncertainty')
+    seed = st.number_input('Simulation seed', min_value=0, value=42, key='sim_seed')
+    block = st.number_input('Block length (observations)', min_value=1, max_value=252, value=21, key='sim_block')
+    df = st.number_input('Student-t degrees of freedom', min_value=2.1, max_value=100., value=5., key='sim_df') if method == 'student_t' else 5.
+    starting, scenario = 'Current', 'Baseline'
+    if method == 'regime_switching':
+        starting = st.selectbox('Starting regime', ['Current', 'Goldilocks', 'Reflation', 'Slowdown', 'Stagflation', 'Random historical'], key='sim_starting')
+        scenario = st.selectbox('Scenario', SCENARIOS, key='sim_scenario')
+    controls = dict(method=method, years=int(years), n_sims=int(count), initial_value=initial, target_value=goal,
+        annual_contribution=contribution, annual_withdrawal=withdrawal, contribution_growth=growth/100,
+        inflation=inflation/100, rebalance_frequency=frequency, transaction_cost_bps=cost,
+        include_estimation_uncertainty=uncertainty, seed=int(seed), block_length=int(block),
+        degrees_of_freedom=df, starting_regime=starting, scenario=scenario)
+    if st.button('Run Simulation', key='run_simulation'):
+        try:
+            with st.spinner('Simulating portfolio paths…'):
+                output = simulation_research(data, result, portfolio_name, controls)
+            st.session_state['simulation_result'] = (output, controls, portfolio_name, bundle.get('completed_at'))
+        except Exception as exc:
+            st.error(f'Simulation failed: {exc}. Previous successful results remain available.')
+    saved = st.session_state.get('simulation_result')
+    if saved is None:
+        return
+    output, previous, previous_portfolio, analysis_date = saved
+    if previous != controls or previous_portfolio != portfolio_name or analysis_date != bundle.get('completed_at'):
+        st.warning('Inputs changed. Showing the last successful simulation; click Run Simulation to update.')
+    st.subheader('Portfolio value percentiles')
+    fan = output['percentile_paths']
+    fig = go.Figure()
+    for key, fill, color in [('p95', None, '#DCE6EE'), ('p5', 'tonexty', '#DCE6EE'),
+                             ('p75', None, '#ABCAC5'), ('p25', 'tonexty', '#ABCAC5'), ('median', None, '#26847E')]:
+        fig.add_scatter(x=fan.index / 252, y=fan[key], name=key, fill=fill, line=dict(color=color), mode='lines')
+    chart(fig.update_layout(xaxis_title='Years', yaxis_title='Nominal portfolio value', height=420))
+    with st.expander('Inflation-adjusted percentile paths'):
+        st.line_chart(output['real_percentile_paths'])
+    stats = output['statistics']
+    st.metric('Probability of reaching goal in this model', number(stats['prob_goal'], 'percent'))
+    st.subheader('Terminal value distribution')
+    chart(go.Figure(go.Histogram(x=output['terminal_values'], nbinsx=50)).update_layout(height=300, xaxis_title='Nominal terminal value'))
+    st.subheader('Terminal values and drawdown statistics')
+    st.dataframe(pd.DataFrame([{'Statistic': k.replace('_', ' '), 'Value': v} for k, v in stats.items()]), hide_index=True)
+    if output['transition_matrix'] is not None:
+        st.subheader('Scenario transition probabilities: next state given current state')
+        st.dataframe(output['transition_matrix'], width='stretch')
+        st.subheader('Simulated regime occupancy')
+        st.area_chart(output['regime_occupancy'])
+    st.subheader('Historical stress replays')
+    st.dataframe(output['stress_tests'], hide_index=True, width='stretch')
+    st.caption('Buy-and-hold event replays exclude costs and cash flows. Incomplete asset histories produce N/A; no proxy assets are substituted.')
+    with st.expander('Assumptions and methodology'):
+        st.json(output['metadata'])
