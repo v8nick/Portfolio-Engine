@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from ui.helpers import number, allocation_table, metric_table, action_table, macro_input_table
 
-PAGES = ('Executive overview', 'Market intelligence', 'Macro indicators',
+PAGES = ('Editor', 'Executive overview', 'Market intelligence', 'Macro indicators',
          'Portfolio construction', 'Risk', 'Robustness', 'Rebalance', 'Backtest', 'Simulation')
 COLORS = ('#8B98A8', '#344E68', '#26847E', '#AB8963', '#7C7495', '#566878')
 METHODS = {'strategic': 'Strategic', 'minimum_variance': 'Minimum variance',
@@ -254,7 +254,7 @@ def correlation_matrix(result):
     fig = go.Figure(go.Heatmap(
         z=frame.to_numpy(), x=tickers, y=tickers, zmin=-1, zmax=1,
         colorscale=[[0, '#3B6FB6'], [.35, '#3B6FB6'], [.35, '#55A68B'],
-                    [.65, '#55A68B'], [.65, '#D68143'], [1, '#D68143']],
+                    [.65, '#55A68B'], [.65, '#C64040'], [1, '#C64040']],
         text=frame.map(lambda v: 'N/A' if pd.isna(v) else f'{v:.2f}').to_numpy(),
         texttemplate='%{text}' if len(tickers) <= 25 else None,
         customdata=labels, hoverongaps=False,
@@ -265,7 +265,7 @@ def correlation_matrix(result):
         xaxis=dict(side='bottom', tickangle=-45, type='category'),
         yaxis=dict(autorange='reversed', type='category'), plot_bgcolor='#E5E7EB'))
     st.caption('Blue ≤ −0.30: opposite movement / potential hedge. Green between −0.30 and +0.30: '
-               'low correlation / diversification. Orange ≥ +0.30: tends to move together. '
+               'low correlation / diversification. Red ≥ +0.30: tends to move together. '
                'These are descriptive cutoffs; negative correlation does not guarantee a hedge, and positive correlation can still provide diversification. '
                'The diagonal compares each asset with itself. Gray cells are unavailable (for example, constant returns).')
     st.caption(f"{saved.get('method', 'Daily-return correlation')} · {saved.get('observations', 0)} common observations · "
@@ -362,7 +362,7 @@ def render(page, bundle, preview=None):
     if page == 'Market intelligence':
         market(bundle, preview)
     elif bundle is None:
-        st.info('Configure the portfolio in the sidebar and click Run Analysis.')
+        st.info('Open Editor to configure your portfolio, then click Apply Portfolio & Run Analysis.')
     else:
         {'Executive overview': overview, 'Macro indicators': regimes, 'Portfolio construction': portfolio,
          'Risk': risk, 'Robustness': robustness, 'Rebalance': rebalance, 'Backtest': backtest, 'Simulation': simulation}[page](bundle)
