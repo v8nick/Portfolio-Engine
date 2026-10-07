@@ -66,7 +66,7 @@ class HelperTests(unittest.TestCase):
                             {'Ticker': 'NEWSTOCK', 'Current %': 40., 'Strategic %': 0.}])
         completed = complete_editor_rows(new)
         self.assertEqual(completed.loc[0, 'Low %'], 55.)
-        self.assertEqual(completed.loc[0, 'High %'], 65.)
+        svelf.assertEqual(completed.loc[0, 'High %'], 65.)
         self.assertEqual(completed.loc[0, 'Role'], 'core')
         self.assertEqual(completed.loc[0, 'Group'], 'us_equity')
         self.assertEqual(completed.loc[1, 'Role'], 'satellite')

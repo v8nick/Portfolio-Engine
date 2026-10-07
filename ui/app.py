@@ -15,17 +15,31 @@ import json
 from uuid import uuid4
 import streamlit as st
 from config import live, shared
-from ui.helpers import initial_editor, validate_editor, number, import_portfolio_csv, complete_editor_rows, prepare_editor_policy
+from ui.helpers import initial_editor, validate_editor, number, import_portfolio_csv, prepare_editor_policy
 from ui.services import market_data, snapshot, run_analysis
 from ui.views import PAGES, render
+from ui.components import portfolio_editor
 
-st.set_page_config(page_title='Portfolio Engine', page_icon='▦', layout='wide', initial_sidebar_state='expanded')
-st.markdown('''<style>
-@media (min-width: 1000px) { [data-testid="stSidebar"] {min-width: 400px;} }
+st.set_page_config(page_title='Portfolio Engine', page_icon='📈', layout='wide', initial_sidebar_state='collapsed')
+st.markdown("""<style>
 .block-container {padding-top: 2rem; max-width: 1550px;}
-[data-testid="stMetric"] {border: 1px solid #DDE3E9; border-radius: 6px; padding: 14px;}
+[data-testid="stMetric"] {border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: 8px; padding: 14px;}
 h1 {font-weight: 600;} h2,h3 {font-weight: 500;}
-</style>''', unsafe_allow_html=True)
+.st-key-page [role="radiogroup"] {gap: .4rem .6rem; flex-wrap: wrap;}
+.st-key-page label {padding: .35rem .65rem; border-radius: 6px; border: 1px solid transparent;}
+.st-key-page label:has(input:checked) {background: color-mix(in srgb, #26847E 14%, transparent); border-color: #26847E;}
+@media (max-width: 640px) {.block-container {padding-left: 1rem; padding-right: 1rem;}}
+</style>""", unsafe_allow_html=True)
+
+INPUT_DEFAULTS = dict(portfolio_value=1_000_000., advanced_allocations=False,
+    satellite_cap=live.MAX_SATELLITE_ALLOCATION * 100, individual_cap=live.MAX_INDIVIDUAL_SATELLITE_WEIGHT * 100,
+    threshold=shared.DECISION_SETTINGS['rebalance_threshold'] * 100,
+    overlay_strength=shared.DECISION_SETTINGS['regime_bl_strength'],
+    repetitions=shared.DECISION_SETTINGS['robustness_repetitions'], tail_confidence=shared.DECISION_SETTINGS['tail_confidence'],
+    rf_override=False, rf_percent=3., history_start=date(2007, 1, 1), as_of=date.today(), csv_mode='Add / update tickers')
+for key, value in INPUT_DEFAULTS.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
 
 for key, value in {'editor_base': initial_editor(), 'analysis': None, 'market_preview': None,
                    'last_success': None, 'last_refresh': None, 'refresh_token': 0,
@@ -51,78 +65,50 @@ def apply_csv_import():
     state.csv_message = ('success', 'CSV imported. Review weights, roles and policy limits, then click Run Analysis.')
 
 
+def save_editor_navigation():
+    # Commit table edits before Streamlit removes an unrendered editor widget.
+    switch_editor_view()
+
+
 def switch_editor_view():
     state = st.session_state
     state.editor_base = state.get('draft_portfolio', state.editor_base).copy(deep=True)
     state.pop('policy_editor', None)
 
 
-with st.sidebar:
-    st.title('Portfolio Engine')
-    st.caption('Portfolio policy · macro context · implementation review')
-    page = st.radio('Workspace', PAGES, key='page')
-    st.divider()
-    st.subheader('Portfolio and policy')
-    st.number_input('Portfolio value ($)', min_value=1., value=1_000_000., step=10_000., key='portfolio_value')
-    with st.expander('Import portfolio CSV'):
-        st.caption('Upload a Ticker or Symbol column, or one ticker per line without a header. Optional columns match the editor. '
-                   'Weights are percentages: 25 or 25%, not 0.25. New tickers start at 0% and as satellites; review their roles and groups.')
-        st.file_uploader('Portfolio CSV', type=['csv'], key='portfolio_csv')
-        st.selectbox('Import mode', ['Add / update tickers', 'Replace table'], key='csv_mode')
-        st.caption('Add / update keeps other rows and preserves columns omitted from the CSV. Replace table keeps only imported tickers. '
-                   'No weights are automatically normalized.')
-        st.button('Import CSV', key='import_csv', on_click=apply_csv_import,
-                  disabled=st.session_state.portfolio_csv is None)
-        template = initial_editor()
-        template = template.loc[template['Strategic %'] > 0, ['Ticker', 'Current %', 'Strategic %']].copy()
-        template['Current %'] = template['Strategic %']
-        st.download_button('Download CSV template', template.rename(columns={'Strategic %': 'Target %'}).to_csv(index=False),
-            file_name='portfolio_template.csv', mime='text/csv', key='csv_template')
-        st.download_button('Download advanced CSV template', 'Ticker,Current %,Target %,Low %,High %,Minimum %,Maximum %,Fixed %,Role,Group\n'
-            'SPY,60,60,50,70,0,100,,core,us_equity\nIEF,40,40,30,50,0,100,,core,treasury\n',
-            file_name='portfolio_advanced_template.csv', mime='text/csv', key='csv_advanced_template')
-        if 'csv_message' in st.session_state:
-            kind, message = st.session_state.csv_message
-            getattr(st, kind)(message)
-    advanced = st.checkbox('Show advanced allocation settings', key='advanced_allocations', on_change=switch_editor_view)
-    st.caption('Current % is the share you own today. Target % is the share you want in your long-term portfolio '
-               '(20 means 20% of the portfolio). Each column must total 100%.')
-    numeric = {name: st.column_config.NumberColumn(name, min_value=0., max_value=100., format='%.2f')
-               for name in ('Current %', 'Strategic %', 'Low %', 'High %', 'Minimum %', 'Maximum %', 'Fixed %')}
-    numeric['Strategic %'] = st.column_config.NumberColumn('Target %', min_value=0., max_value=100., format='%.2f',
-        help='The percentage you want this holding to represent in your long-term portfolio. This is the input previously called Strategic %.')
-    numeric['Role'] = st.column_config.SelectboxColumn('Role', options=['core', 'satellite'], required=True)
-    if not advanced:
-        numeric.update({name: None for name in ('Low %', 'High %', 'Minimum %', 'Maximum %', 'Fixed %', 'Role', 'Group')})
-    else:
-        st.caption('Low / High: tactical allocation band. Minimum / Maximum: hard limits. Fixed: optional locked target. '
-                   'Role: core or satellite. Group: category used for risk summaries. Optional rules are used in this view, '
-                   'but Target % takes priority if a band, limit or fixed weight conflicts.')
-    edited = st.data_editor(st.session_state.editor_base, key='policy_editor', num_rows='dynamic',
-        hide_index=True, width='stretch', column_config=numeric, height=360)
-    edited = complete_editor_rows(edited)
-    st.session_state['draft_portfolio'] = edited.copy(deep=True)
-    st.caption(f"Current total: {edited['Current %'].sum():.2f}% · Target total: {edited['Strategic %'].sum():.2f}%")
-    if not advanced:
-        st.caption('Targets take priority. Bands are generated at target ±5 percentage points (within 0–100%); '
-                   'hidden hard limits and fixed weights are ignored. Classifications are supplied automatically when omitted.')
-    with st.expander('Optional concentration limits'):
-        st.caption('These limits expand automatically if needed to accommodate your entered targets.')
-        st.number_input('Max satellite allocation (%)', min_value=0., max_value=100., value=live.MAX_SATELLITE_ALLOCATION * 100, key='satellite_cap')
-        st.number_input('Max individual satellite (%)', min_value=0., max_value=100., value=live.MAX_INDIVIDUAL_SATELLITE_WEIGHT * 100, key='individual_cap')
-    with st.expander('Analysis settings', expanded=False):
-        defaults = shared.DECISION_SETTINGS
-        st.number_input('Rebalance threshold (%)', min_value=0., max_value=100., value=defaults['rebalance_threshold'] * 100, key='threshold')
-        st.slider('Historical market-pattern overlay strength', 0., 1., defaults['regime_bl_strength'], .05, key='overlay_strength')
-        st.number_input('Bootstrap repetitions', min_value=0, max_value=300, value=defaults['robustness_repetitions'], step=10, key='repetitions')
-        st.slider('VaR / CVaR confidence', .80, .99, defaults['tail_confidence'], .01, key='tail_confidence')
-        st.checkbox('Override risk-free rate', key='rf_override')
-        st.number_input('Annual risk-free rate (%)', min_value=-10., max_value=100., value=3., key='rf_percent')
-        st.date_input('History start', value=date(2007, 1, 1), key='history_start')
-        st.date_input('Analysis as of', value=date.today(), key='as_of')
-    run = st.button('Run Analysis', type='primary', width='stretch', key='run_analysis')
-    refresh = st.button('Refresh Market Data', width='stretch', key='refresh_market')
-    st.caption('Default strategy is illustrative. Engine settings, manual views and tax assumptions remain those in configuration. No trades are executed.')
+# Keep widget values alive when their page is not rendered. Buttons/uploads are
+# intentionally excluded; the imported portfolio, rather than its upload, persists.
+for key in list(st.session_state):
+    if key in INPUT_DEFAULTS or (key.startswith(('bt_', 'sim_')) and key != 'bt_available_history'):
+        st.session_state[key] = st.session_state[key]
+
+st.title('Portfolio Engine')
+st.caption('Quantitative portfolio optimization, backtesting, risk analysis, and market simulation.')
+page = st.radio('Workspace', PAGES, key='page', horizontal=True,
+                format_func=lambda x: x.title(), label_visibility='collapsed', on_change=save_editor_navigation)
+st.divider()
+run = refresh = False
+if page == 'Home':
+    st.write('Build your portfolio, explore market conditions, evaluate allocation strategies, and simulate potential outcomes. '
+             'Start by entering your current investments and target allocations below, then use the navigation menu to explore the analysis.')
+    for col, title, detail in zip(st.columns(3),
+            ('1. Build your portfolio', '2. Run the analysis', '3. Explore results'),
+            ('Enter assets, current holdings, targets and portfolio value.',
+             'Evaluate market conditions, allocation, risk and robustness.',
+             'Compare strategies, backtest performance and simulate outcomes.')):
+        with col:
+            st.markdown(f'**{title}**')
+            st.caption(detail)
+    actions = st.columns([2, 1])
+    run = actions[0].button('Apply Portfolio & Run Analysis', type='primary', width='stretch', key='run_analysis')
+    refresh = actions[1].button('Refresh Market Data', width='stretch', key='refresh_market')
+    st.caption('Apply uses the portfolio below. Refresh updates market data; run analysis to incorporate it into your results.')
+    with st.expander('Portfolio editor', expanded=True):
+        edited, advanced = portfolio_editor(apply_csv_import, switch_editor_view)
+else:
+    edited = st.session_state.get('draft_portfolio', st.session_state.editor_base)
+    advanced = st.session_state.advanced_allocations
+
 
 state = st.session_state
 effective_editor, satellite_cap, individual_cap, policy_notes = prepare_editor_policy(
@@ -170,7 +156,19 @@ if run or refresh:
                 message = 'Analysis or data loading failed. Check provider availability and portfolio history, then try again.'
             state.analysis_error = (message, f'{type(exc).__name__}: {exc}')
 
-st.title(page)
+st.subheader('Executive summary' if page == 'Home' else page.title())
+DESCRIPTIONS = {
+    'Executive overview': 'Your saved portfolio recommendation and the evidence behind it.',
+    'Market intelligence': 'Market trends, asset performance and financial conditions.',
+    'Macro indicators': 'The observed metrics behind the market-pattern model.',
+    'Portfolio construction': 'Compare allocation methods and your current and target weights.',
+    'Risk': 'Explore diversification, correlations and portfolio risk contributions.',
+    'Robustness': 'Assess allocation stability and the evidence supporting each recommendation.',
+    'Rebalance': 'Review proposed changes, trading costs and approximate tax effects.',
+    'Backtest': 'Compare historical strategy performance using point-in-time decisions.',
+    'Simulation': 'Explore possible portfolio outcomes under explicit model assumptions.'}
+if page in DESCRIPTIONS:
+    st.caption(DESCRIPTIONS[page])
 if policy_notes:
     with st.expander('Allocation rules adjusted to your targets', expanded=False):
         for note in policy_notes:
@@ -186,10 +184,10 @@ if errors:
 bundle = state.analysis
 if bundle:
     result = bundle['recommendation']
-    st.caption(f"Analysis completed: {bundle['completed_at']} · Portfolio observations through: {result.get('as_of', 'N/A')} · "
+    st.caption(f"Assets: {len(result.get('policy', {}))} · Analysis completed: {bundle['completed_at']} · Portfolio observations through: {result.get('as_of', 'N/A')} · "
                f"Market snapshot: {bundle['snapshot'].get('timestamp', 'N/A')} · Portfolio value: {number(bundle['portfolio_value'], 'money')}")
     if bundle['config'] != config:
-        st.info('Configuration has changed. These are the last successful results; click Run Analysis to apply your edits.')
+        st.info('Configuration has changed. These are the last successful results; return to Home and click Apply Portfolio & Run Analysis to apply your edits.')
     if state.market_preview:
         st.info('Market data was refreshed after this analysis. Portfolio results remain saved; run analysis to incorporate it.')
     warnings = list(dict.fromkeys(result.get('warnings', []) + bundle.get('warnings', []) + bundle['snapshot'].get('data_quality', [])))
@@ -207,4 +205,4 @@ if state.last_refresh:
     st.caption(f'Last market refresh attempt: {state.last_refresh}')
     for warning in state.refresh_warnings:
         st.warning(warning)
-render(page, bundle, state.market_preview)
+render('Executive overview' if page == 'Home' else page, bundle, state.market_preview)

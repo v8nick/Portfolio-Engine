@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from ui.helpers import number, allocation_table, metric_table, action_table, macro_input_table
 
-PAGES = ('Executive overview', 'Market intelligence', 'Macro indicators',
+PAGES = ('Home', 'Executive overview', 'Market intelligence', 'Macro indicators',
          'Portfolio construction', 'Risk', 'Robustness', 'Rebalance', 'Backtest', 'Simulation')
 COLORS = ('#8B98A8', '#344E68', '#26847E', '#AB8963', '#7C7495', '#566878')
 METHODS = {'strategic': 'Strategic', 'minimum_variance': 'Minimum variance',
@@ -362,7 +362,7 @@ def render(page, bundle, preview=None):
     if page == 'Market intelligence':
         market(bundle, preview)
     elif bundle is None:
-        st.info('Configure the portfolio in the sidebar and click Run Analysis.')
+        st.info('Open Home to configure your portfolio, then click Apply Portfolio & Run Analysis.')
     else:
         {'Executive overview': overview, 'Macro indicators': regimes, 'Portfolio construction': portfolio,
          'Risk': risk, 'Robustness': robustness, 'Rebalance': rebalance, 'Backtest': backtest, 'Simulation': simulation}[page](bundle)

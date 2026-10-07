@@ -85,7 +85,7 @@ already on your PATH, the launcher can reuse it.
 
 The app opens without downloading market data or running portfolio analysis.
 
-To import a portfolio, expand **Import portfolio CSV** above the sidebar table,
+To import a portfolio, expand **Import portfolio CSV** on the Home page,
 choose a `.csv` file, select **Add / update tickers** or **Replace table**, and
 click **Import CSV**. A `Ticker` (or `Symbol`) column is required; a single-column
 list without a header also works. Download the basic CSV template for ticker,
@@ -108,7 +108,7 @@ Duplicate tickers, unsupported columns and invalid percentages are rejected
 without changing the table. Broker exports with share counts or dollar values
 must be converted to this percentage format first.
 
-1. In the sidebar, enter your **portfolio value** and edit the portfolio table.
+1. On **Home**, enter your **portfolio value** and edit the portfolio table.
    All weights in the editor are percentages: enter `25` for 25%.
 2. The basic editor shows only **Ticker**, **Current %** and **Target %**.
    Set your current weights and strategic targets. Each weight column must total
@@ -131,7 +131,7 @@ must be converted to this percentage format first.
    start as satellites. Classifications can be edited in the advanced view.
 4. Review satellite limits and the settings expander. The default strategy is
    illustrative; customize it before relying on any recommendation.
-5. Click **Run Analysis** and wait for completion. For a quicker initial check,
+5. Click **Apply Portfolio & Run Analysis** and wait for completion. For a quicker initial check,
    reduce bootstrap repetitions from 100 to 20. This changes how many sensitivity
    checks run, not the underlying financial methodology.
 6. Navigate between pages to inspect the saved result:
@@ -149,7 +149,7 @@ must be converted to this percentage format first.
 | Simulation | Four forward simulation methods, cash flows, scenario transitions, fan charts and stress replays |
 
 Page navigation, chart selections and input edits do not rerun the portfolio
-engine. Click **Run Analysis** to apply edited inputs. **Refresh Market Data**
+engine. Click **Apply Portfolio & Run Analysis** to apply edited inputs. **Refresh Market Data**
 requests fresh provider data; it leaves the saved portfolio recommendation intact
 until you run analysis again. A failed run retains the last successful result.
 
@@ -258,7 +258,7 @@ by these two consolidated launchers. The console workflows themselves remain.
 - `config/research.py`: research basket and research workflow settings.
 - `.streamlit/config.toml`: dashboard appearance.
 
-Sidebar edits affect the current session; they do not rewrite `config/` files.
+Home edits affect the current session; they do not rewrite `config/` files.
 The UI continues using configured manual BL opinions and cost/tax assumptions.
 
 ## Interpretation and limitations
@@ -292,7 +292,7 @@ Nicholas Clervi · Economics / Quantitative Finance Research
 
 This phase retains the live recommendation engine, the console workflows and the
 legacy `rolling_black_litterman_backtest` API. It adds **Backtest** and **Simulation**
-to the sidebar. Run portfolio analysis once to save the input history, then run
+to the top navigation. Run portfolio analysis once to save the input history, then run
 research explicitly on those pages. Editing a research control never downloads
 market data or reruns a study automatically. Last successful results remain
 visible with a stale-input warning until another run succeeds.
@@ -481,3 +481,17 @@ range, annual regime-view adjustment and reasons. Conviction is HIGH at ≥0.75,
 MEDIUM at ≥0.40, otherwise LOW, using the minimum of existing stability, agreement
 and overall recommendation confidence. It is an evidence classification, not the
 probability an asset will outperform. The recommendation algorithm is preserved.
+
+### Dashboard navigation and saved state
+
+Home is the default landing page and the only portfolio editor. Apply Portfolio &
+Run Analysis and Refresh Market Data sit above the editor; the saved executive
+summary appears below it. Collapse the editor to focus on results. The horizontal
+native Streamlit radio menu wraps on small screens and keeps all existing analytical
+pages accessible without a permanent sidebar or additional navigation dependencies.
+
+Draft table edits and settings survive page changes. The last successful analysis
+stores a separate applied configuration; editing the draft only marks results as
+outdated. Applying validates and runs the existing pipeline once. A failed run
+retains previous results. Backtest and simulation settings/results also persist
+across navigation. State is session-local; it is not durable account storage.

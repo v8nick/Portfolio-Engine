@@ -260,6 +260,9 @@ def validate_editor(frame, satellite_cap, individual_cap):
             errors.append(f'Row {index + 1}: enter a ticker or delete the row.')
             continue
         ticker = str(raw).strip().upper()
+        if not re.fullmatch(r'[A-Z0-9^][A-Z0-9.^=\-]{0,24}', ticker):
+            errors.append(f'Row {index + 1}: invalid ticker format ({ticker}).')
+            continue
         if ticker in policy:
             errors.append(f'{ticker}: duplicate ticker.')
             continue
