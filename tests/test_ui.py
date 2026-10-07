@@ -66,7 +66,7 @@ class HelperTests(unittest.TestCase):
                             {'Ticker': 'NEWSTOCK', 'Current %': 40., 'Strategic %': 0.}])
         completed = complete_editor_rows(new)
         self.assertEqual(completed.loc[0, 'Low %'], 55.)
-        svelf.assertEqual(completed.loc[0, 'High %'], 65.)
+        self.assertEqual(completed.loc[0, 'High %'], 65.)
         self.assertEqual(completed.loc[0, 'Role'], 'core')
         self.assertEqual(completed.loc[0, 'Group'], 'us_equity')
         self.assertEqual(completed.loc[1, 'Role'], 'satellite')
@@ -191,15 +191,31 @@ class AppTests(unittest.TestCase):
         cls.bundle.update(portfolio_value=1000000, config={}, completed_at=cls.as_of)
 
     def app(self):
-        return AppTest.from_file(str(ROOT / 'ui' / 'app.py'), default_timeout=20)
+        app = AppTest.from_file(str(ROOT / 'ui' / 'app.py'), default_timeout=20)
+        app.session_state['page'] = 'Editor'
+        return app
 
     def test_first_run_no_backend_or_download(self):
         with patch('ui.services.run_analysis') as engine, patch('ui.services.market_data') as provider:
-            app = self.app().run()
+            app = AppTest.from_file(str(ROOT / 'ui' / 'app.py'), default_timeout=20).run()
             self.assertFalse(app.exception)
             self.assertIsNone(app.session_state['analysis'])
             engine.assert_not_called()
             provider.assert_not_called()
+
+    def test_editor_contains_inputs_and_executive_contains_summary(self):
+        app = self.app().run()
+        self.assertEqual(app.radio(key='page').value, 'Editor')
+        self.assertTrue(app.button(key='import_csv'))
+        self.assertTrue(app.checkbox(key='advanced_allocations'))
+        app.number_input(key='threshold').set_value(2.).run()
+        app.radio(key='page').set_value('Executive overview').run()
+        self.assertFalse(app.exception)
+        self.assertFalse(any(x.key == 'advanced_allocations' for x in app.checkbox))
+        self.assertTrue(any(x.value == 'Executive summary' for x in app.subheader))
+        app.radio(key='page').set_value('Editor').run()
+        self.assertEqual(app.number_input(key='threshold').value, 2.)
+
 
     def test_basic_advanced_toggle_preserves_editor_and_saved_analysis(self):
         app = self.app()

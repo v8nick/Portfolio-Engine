@@ -108,7 +108,7 @@ Duplicate tickers, unsupported columns and invalid percentages are rejected
 without changing the table. Broker exports with share counts or dollar values
 must be converted to this percentage format first.
 
-1. On **Home**, enter your **portfolio value** and edit the portfolio table.
+1. On **Editor**, enter your **portfolio value** or import a CSV. Edit the portfolio table on the same page.
    All weights in the editor are percentages: enter `25` for 25%.
 2. The basic editor shows only **Ticker**, **Current %** and **Target %**.
    Set your current weights and strategic targets. Each weight column must total
@@ -156,7 +156,7 @@ until you run analysis again. A failed run retains the last successful result.
 The Risk page correlation matrix uses daily returns over the saved analysis’s
 common risk sample and includes every ticker in its universe. Blue (≤ −0.30)
 indicates opposite movement / a potential hedge; green (between −0.30 and +0.30)
-indicates low correlation; orange (≥ +0.30) indicates assets tending to move
+indicates low correlation; red (≥ +0.30) indicates assets tending to move
 together. These descriptive thresholds do not guarantee hedging or diversification.
 Hover for exact values or download the correlation CSV. Gray cells represent
 unavailable correlations, such as constant-return series. Run Analysis again to
@@ -484,10 +484,10 @@ probability an asset will outperform. The recommendation algorithm is preserved.
 
 ### Dashboard navigation and saved state
 
-Home is the default landing page and the only portfolio editor. Apply Portfolio &
-Run Analysis and Refresh Market Data sit above the editor; the saved executive
-summary appears below it. Collapse the editor to focus on results. The horizontal
-native Streamlit radio menu wraps on small screens and keeps all existing analytical
+Editor is the default landing page with portfolio value, CSV import, allocation editor and advanced settings. The executive summary lives in Executive Overview. Apply Portfolio &
+Run Analysis and Refresh Market Data are available on Editor and Executive Overview; the saved executive
+summary appears on Executive Overview. Collapse the editor to focus on results. The sticky horizontal
+native Streamlit menu uses clickable outlined boxes and wraps on small screens and keeps all existing analytical
 pages accessible without a permanent sidebar or additional navigation dependencies.
 
 Draft table edits and settings survive page changes. The last successful analysis

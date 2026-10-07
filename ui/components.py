@@ -5,7 +5,7 @@ from config import live, shared
 from ui.helpers import initial_editor, complete_editor_rows
 
 
-def portfolio_editor(apply_csv_import, switch_editor_view):
+def portfolio_import(apply_csv_import):
     st.subheader('Portfolio and policy')
     st.number_input('Portfolio value ($)', min_value=1., value=1_000_000., step=10_000., key='portfolio_value')
     with st.expander('Import portfolio CSV'):
@@ -28,6 +28,10 @@ def portfolio_editor(apply_csv_import, switch_editor_view):
         if 'csv_message' in st.session_state:
             kind, message = st.session_state.csv_message
             getattr(st, kind)(message)
+
+
+def portfolio_editor(switch_editor_view):
+    st.subheader('Portfolio allocations')
     advanced = st.checkbox('Show advanced allocation settings', key='advanced_allocations', on_change=switch_editor_view)
     st.caption('Current % is the share you own today. Target % is the share you want in your long-term portfolio '
                '(20 means 20% of the portfolio). Each column must total 100%.')

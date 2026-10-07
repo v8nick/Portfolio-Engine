@@ -18,15 +18,20 @@ from config import live, shared
 from ui.helpers import initial_editor, validate_editor, number, import_portfolio_csv, prepare_editor_policy
 from ui.services import market_data, snapshot, run_analysis
 from ui.views import PAGES, render
-from ui.components import portfolio_editor
+from ui.components import portfolio_editor, portfolio_import
 
 st.set_page_config(page_title='Portfolio Engine', page_icon='📈', layout='wide', initial_sidebar_state='collapsed')
 st.markdown("""<style>
 .block-container {padding-top: 2rem; max-width: 1550px;}
 [data-testid="stMetric"] {border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: 8px; padding: 14px;}
 h1 {font-weight: 600;} h2,h3 {font-weight: 500;}
-.st-key-page [role="radiogroup"] {gap: .4rem .6rem; flex-wrap: wrap;}
-.st-key-page label {padding: .35rem .65rem; border-radius: 6px; border: 1px solid transparent;}
+.st-key-page {position: sticky; top: 3.5rem; z-index: 100; background: var(--background-color, Canvas); padding: .5rem 0; border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent);}
+.st-key-page, .st-key-page [data-testid="stRadio"] {width: 100%; max-width: none;}
+.st-key-page [role="radiogroup"] {display: flex; width: 100%; gap: .4rem .6rem; flex-wrap: wrap;}
+.st-key-page label {flex: 1 1 auto; justify-content: center; margin: 0; padding: .35rem .65rem; border-radius: 6px; border: 1px solid color-mix(in srgb, currentColor 25%, transparent); cursor: pointer;}
+.st-key-page label > div:first-child,
+.st-key-page label > div > div:first-child:not([data-testid="stMarkdownContainer"]) {display: none;}
+.st-key-page label:focus-within {outline: 2px solid #26847E; outline-offset: 2px;}
 .st-key-page label:has(input:checked) {background: color-mix(in srgb, #26847E 14%, transparent); border-color: #26847E;}
 @media (max-width: 640px) {.block-container {padding-left: 1rem; padding-right: 1rem;}}
 </style>""", unsafe_allow_html=True)
@@ -48,6 +53,8 @@ for key, value in {'editor_base': initial_editor(), 'analysis': None, 'market_pr
         st.session_state[key] = value
 
 # Preserve navigation in sessions opened before the metrics page was renamed.
+if st.session_state.get('page') == 'Home':
+    st.session_state['page'] = 'Editor'
 if st.session_state.get('page') == 'Regime analysis':
     st.session_state['page'] = 'Macro indicators'
 
@@ -61,6 +68,7 @@ def apply_csv_import():
         state.csv_message = ('error', str(exc))
         return
     state.editor_base = frame
+    state.draft_portfolio = frame.copy(deep=True)
     state.pop('policy_editor', None)
     state.csv_message = ('success', 'CSV imported. Review weights, roles and policy limits, then click Run Analysis.')
 
@@ -88,9 +96,10 @@ page = st.radio('Workspace', PAGES, key='page', horizontal=True,
                 format_func=lambda x: x.title(), label_visibility='collapsed', on_change=save_editor_navigation)
 st.divider()
 run = refresh = False
-if page == 'Home':
+if page == 'Editor':
+    st.subheader('Editor')
     st.write('Build your portfolio, explore market conditions, evaluate allocation strategies, and simulate potential outcomes. '
-             'Start by entering your current investments and target allocations below, then use the navigation menu to explore the analysis.')
+             'Enter or import your portfolio below, then open Executive Overview to explore your results.')
     for col, title, detail in zip(st.columns(3),
             ('1. Build your portfolio', '2. Run the analysis', '3. Explore results'),
             ('Enter assets, current holdings, targets and portfolio value.',
@@ -99,12 +108,15 @@ if page == 'Home':
         with col:
             st.markdown(f'**{title}**')
             st.caption(detail)
-    actions = st.columns([2, 1])
+if page in ('Editor', 'Executive overview'):
+    actions = st.columns(2)
     run = actions[0].button('Apply Portfolio & Run Analysis', type='primary', width='stretch', key='run_analysis')
     refresh = actions[1].button('Refresh Market Data', width='stretch', key='refresh_market')
-    st.caption('Apply uses the portfolio below. Refresh updates market data; run analysis to incorporate it into your results.')
+    st.caption('Edit allocations below or return to Editor. Refresh updates market data; apply runs analysis using your saved draft.')
+if page == 'Editor':
+    portfolio_import(apply_csv_import)
     with st.expander('Portfolio editor', expanded=True):
-        edited, advanced = portfolio_editor(apply_csv_import, switch_editor_view)
+        edited, advanced = portfolio_editor(switch_editor_view)
 else:
     edited = st.session_state.get('draft_portfolio', st.session_state.editor_base)
     advanced = st.session_state.advanced_allocations
@@ -156,7 +168,14 @@ if run or refresh:
                 message = 'Analysis or data loading failed. Check provider availability and portfolio history, then try again.'
             state.analysis_error = (message, f'{type(exc).__name__}: {exc}')
 
-st.subheader('Executive summary' if page == 'Home' else page.title())
+if page == 'Editor':
+    for error in errors:
+        st.warning(error)
+    if state.analysis_error:
+        st.error(state.analysis_error[0])
+        st.text(state.analysis_error[1])
+    st.stop()
+st.subheader('Executive summary' if page == 'Executive overview' else page.title())
 DESCRIPTIONS = {
     'Executive overview': 'Your saved portfolio recommendation and the evidence behind it.',
     'Market intelligence': 'Market trends, asset performance and financial conditions.',
@@ -187,7 +206,7 @@ if bundle:
     st.caption(f"Assets: {len(result.get('policy', {}))} · Analysis completed: {bundle['completed_at']} · Portfolio observations through: {result.get('as_of', 'N/A')} · "
                f"Market snapshot: {bundle['snapshot'].get('timestamp', 'N/A')} · Portfolio value: {number(bundle['portfolio_value'], 'money')}")
     if bundle['config'] != config:
-        st.info('Configuration has changed. These are the last successful results; return to Home and click Apply Portfolio & Run Analysis to apply your edits.')
+        st.info('Configuration has changed. These are the last successful results; return to Editor and click Apply Portfolio & Run Analysis to apply your edits.')
     if state.market_preview:
         st.info('Market data was refreshed after this analysis. Portfolio results remain saved; run analysis to incorporate it.')
     warnings = list(dict.fromkeys(result.get('warnings', []) + bundle.get('warnings', []) + bundle['snapshot'].get('data_quality', [])))
@@ -205,4 +224,4 @@ if state.last_refresh:
     st.caption(f'Last market refresh attempt: {state.last_refresh}')
     for warning in state.refresh_warnings:
         st.warning(warning)
-render('Executive overview' if page == 'Home' else page, bundle, state.market_preview)
+render('Executive overview' if page == 'Editor' else page, bundle, state.market_preview)
